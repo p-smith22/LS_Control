@@ -43,7 +43,7 @@ n_tsteps = int(T_tot / dt)
 # Run several simulations with different weight matrices:
 x1, u1 = cart_pole(1 * np.diag([1, 1, 10, 1]), 1 * np.array([[0.1]]), dt, n_tsteps)
 x2, u2= cart_pole(0.5 * np.diag([1, 1, 10, 1]), 5 * np.array([[0.1]]), dt, n_tsteps)
-x3, u3 = cart_pole(0.1 * np.diag([1, 1, 10, 1]), 10 * np.array([[1]]), dt, n_tsteps)
+x3, u3 = cart_pole(0.1 * np.diag([1, 1, 10, 1]), 10 * np.array([[0.1]]), dt, n_tsteps)
 
 # === Plot results ===
 t = np.linspace(0, T_tot, n_tsteps)
