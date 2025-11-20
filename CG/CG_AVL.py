@@ -2,118 +2,166 @@
 import numpy as np
 from rbf.interpolate import RBFInterpolant
 import matplotlib.pyplot as plt
+from scipy.linalg import expm
 
 # Train RBF for A and B matrices:
 def train_rbf():
+
+    # Load data:
     a = np.load('./AVL_Data/A_trainer_5_large.npy')
     b = np.load('./AVL_Data/B_trainer_5_large.npy')
     trainer_vals = np.load('./AVL_Data/sobolsequence_5_large.npy')
 
+    # Formatting:
     iterations = len(trainer_vals[:, 0])
     a_reshape = a.reshape(iterations, -1)
     b_reshape = b.reshape(iterations, -1)
 
+    # Set interpolated matrices:
     interp_a = RBFInterpolant(trainer_vals, a_reshape)
     interp_b = RBFInterpolant(trainer_vals, b_reshape)
-
     return interp_a, interp_b
+
+# Translate continuous matrices to continuous (e.g. A --> e**(A * dt)) for discrete linear system:
+def discretize_system(a_cts, b_cts, dt):
+
+    n = a_cts.shape[0]
+    m = b_cts.shape[1]
+
+    # Build augmented matrix [A, B; 0, 0]
+    M = np.zeros((n + m, n + m))
+    M[:n, :n] = a_cts * dt
+    M[:n, n:] = b_cts * dt
+
+    # Exact discretization using matrix exponential
+    exp_m = expm(M)
+
+    a_disc = exp_m[:n, :n]
+    b_disc = exp_m[:n, n:]
+
+    return a_disc, b_disc
 
 # Calculate controllability matrix:
 def calc_c(a, b, steps):
     n = a.shape[0]
     m = b.shape[1]
     c = np.zeros((n, steps * m))
-    # Build controllability matrix in reverse order: [A^(N-1)*B, A^(N-2)*B, ..., A*B, B]
     for i in range(steps):
-        c[:, i*m:(i+1)*m] = np.linalg.matrix_power(a, steps-1-i) @ b
+        c[:, i * m:(i + 1) * m] = np.linalg.matrix_power(a, steps - 1 - i) @ b
     return c
+
 
 # Problem parameters:
 x_0 = np.array([5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 x_f = np.array([15, 0, 0, 0, 0, 0, 0, 0, 100, 50, 10, 0])
-n_tsteps = 100  # Reduced from 100 to avoid numerical overflow
+
+# Time parameters
+dt = 0.1
+T_tot = 10.0
+n_tsteps = int(T_tot / dt)
 
 # Load interpolators:
 A_interp, B_interp = train_rbf()
 
-# Fetch matrices:
-A = A_interp([[15, 6, 0]]).reshape(-1, 12, 12)[0]
-B = B_interp([[15, 6, 0]]).reshape(-1, 12, 4)[0]
+# Fetch system matrices (nominal configuration):
+A_cts = A_interp([[15, 6, 0]]).reshape(-1, 12, 12)[0]
+B_cts = B_interp([[15, 6, 0]]).reshape(-1, 12, 4)[0]
 
-print(f"System eigenvalues: {np.linalg.eigvals(A)}")
-print(f"Max eigenvalue magnitude: {np.max(np.abs(np.linalg.eigvals(A))):.4f}")
+# Discretize the system:
+A, B = discretize_system(A_cts, B_cts, dt)
 
+# Build controllability matrix
 C = calc_c(A, B, n_tsteps)
 
 # Check controllability:
 rank = np.linalg.matrix_rank(C)
-print(f"Controllability matrix rank: {rank}/{A.shape[0]}")
 if rank != A.shape[0]:
-    print("WARNING: System may not be controllable")
+    raise Exception("ERROR: Singular Matrix")
 
 # Solve for control inputs using pseudoinverse:
 RHS = x_f - np.linalg.matrix_power(A, n_tsteps) @ x_0
 U_flat = np.linalg.pinv(C) @ RHS
 U = U_flat.reshape(n_tsteps, B.shape[1])
 
-print(f"Control input shape: {U.shape}")
-print(f"First control input: {U[0]}")
-
-# Simulate:
-x = np.zeros((A.shape[0], n_tsteps+1))
+# Simulate forwards in time (can simply step because we discretized the matrices):
+x = np.zeros((A.shape[0], n_tsteps + 1))
 x[:, 0] = x_0
 for k in range(n_tsteps):
-    x[:, k+1] = A @ x[:, k] + (B @ U[k]).flatten()
-
-# Verification:
-print(f"\nInitial state: {x[:, 0]}")
-print(f"Final state: {x[:, n_tsteps]}")
-print(f"Desired final state: {x_f}")
-print(f"Error: {np.linalg.norm(x[:, n_tsteps] - x_f):.6f}")
+    x[:, k + 1] = A @ x[:, k] + (B @ U[k]).flatten()
 
 # Plot trajectory:
-plt.figure(figsize=(10, 8))
+time = np.arange(n_tsteps + 1) * dt
 
-# Plot x vs y
-plt.subplot(2, 2, 1)
-plt.plot(x[0,:], x[1,:], marker='o', markersize=3, label='Trajectory')
-plt.scatter(x_0[0], x_0[1], color='green', s=100, label='Initial state', zorder=5)
-plt.scatter(x_f[0], x_f[1], color='red', s=100, label='Desired final state', zorder=5)
-plt.scatter(x[0, n_tsteps], x[1, n_tsteps], color='blue', s=100, marker='x', label='Actual final state', zorder=5)
-plt.xlabel('x[0]')
-plt.ylabel('x[1]')
-plt.title('State Trajectory (x[0] vs x[1])')
-plt.grid(True)
-plt.legend()
-
-# Plot all states over time
-plt.subplot(2, 2, 2)
-for i in range(min(6, x.shape[0])):
-    plt.plot(x[i,:], label=f'x[{i}]')
-plt.xlabel('Time step')
-plt.ylabel('State value')
-plt.title('First 6 States Over Time')
-plt.grid(True)
-plt.legend()
-
-# Plot control inputs
-plt.subplot(2, 2, 3)
-for i in range(U.shape[1]):
-    plt.plot(U[:, i], label=f'u[{i}]')
-plt.xlabel('Time step')
-plt.ylabel('Control input')
-plt.title('Control Inputs')
-plt.grid(True)
-plt.legend()
-
-# Plot error over time
-plt.subplot(2, 2, 4)
-errors = np.linalg.norm(x[:, :] - x_f.reshape(-1, 1), axis=0)
-plt.plot(errors)
-plt.xlabel('Time step')
-plt.ylabel('Error to target')
-plt.title('Distance to Target State')
-plt.grid(True)
-
+# Plot position:
+fig, ax1 = plt.subplots(3, 1, figsize=(10, 8))
+fig.suptitle('Position States', fontsize=14, fontweight='bold')
+position_labels = ['x (m)', 'y (m)', 'z (m)']
+position_idx = [8, 9, 10]
+for i, idx in enumerate(position_idx):
+    ax1[i].plot(time, x[idx, :], linewidth=2, color='blue')
+    ax1[i].axhline(x_0[idx], color='green', linestyle='--', label='Initial', linewidth=1.5)
+    ax1[i].axhline(x_f[idx], color='red', linestyle='--', label='Target', linewidth=1.5)
+    ax1[i].set_ylabel(position_labels[i], fontsize=12)
+    ax1[i].grid(True, alpha=0.3)
+    ax1[i].legend()
+ax1[-1].set_xlabel('Time (s)', fontsize=12)
 plt.tight_layout()
+
+# Plot velocities:
+fig, ax2 = plt.subplots(3, 1, figsize=(10, 8))
+fig.suptitle('Velocity States', fontsize=14, fontweight='bold')
+velocity_labels = ['u (m/s)', 'v (m/s)', 'w (m/s)']
+velocity_idx = [0, 4, 1]
+for i, idx in enumerate(velocity_idx):
+    ax2[i].plot(time, x[idx, :], linewidth=2, color='blue')
+    ax2[i].axhline(x_0[idx], color='green', linestyle='--', label='Initial', linewidth=1.5)
+    ax2[i].axhline(x_f[idx], color='red', linestyle='--', label='Target', linewidth=1.5)
+    ax2[i].set_ylabel(velocity_labels[i], fontsize=12)
+    ax2[i].grid(True, alpha=0.3)
+    ax2[i].legend()
+ax2[-1].set_xlabel('Time (s)', fontsize=12)
+plt.tight_layout()
+
+# Plot Euler angles:
+fig, ax3 = plt.subplots(3, 1, figsize=(10, 8))
+fig.suptitle('Euler Angles', fontsize=14, fontweight='bold')
+angle_labels = ['\u0398 (deg)', '\u03A6 (deg)', '\u03A8 (deg)']
+angle_idx = [3, 7, 11]
+for i, idx in enumerate(angle_idx):
+    ax3[i].plot(time, np.rad2deg(x[idx, :]), linewidth=2, color='blue')
+    ax3[i].axhline(np.rad2deg(x_0[idx]), color='green', linestyle='--', label='Initial', linewidth=1.5)
+    ax3[i].axhline(np.rad2deg(x_f[idx]), color='red', linestyle='--', label='Target', linewidth=1.5)
+    ax3[i].set_ylabel(angle_labels[i], fontsize=12)
+    ax3[i].grid(True, alpha=0.3)
+    ax3[i].legend()
+ax3[-1].set_xlabel('Time (s)', fontsize=12)
+plt.tight_layout()
+
+# Plot Euler rates:
+fig, ax4 = plt.subplots(3, 1, figsize=(10, 8))
+fig.suptitle('Angular Rates', fontsize=14, fontweight='bold')
+rate_labels = ['q (deg/s)', 'p (deg/s)', 'r (deg rate)']
+rate_idx = [2, 5, 6]
+for i, idx in enumerate(rate_idx):
+    ax4[i].plot(time, np.rad2deg(x[idx, :]), linewidth=2, color='blue')
+    ax4[i].axhline(np.rad2deg(x_0[idx]), color='green', linestyle='--', label='Initial', linewidth=1.5)
+    ax4[i].axhline(np.rad2deg(x_f[idx]), color='red', linestyle='--', label='Target', linewidth=1.5)
+    ax4[i].set_ylabel(rate_labels[i], fontsize=12)
+    ax4[i].grid(True, alpha=0.3)
+    ax4[i].legend()
+ax4[-1].set_xlabel('Time (s)', fontsize=12)
+plt.tight_layout()
+
+# Plot controls:
+fig, ax5 = plt.subplots(4, 1, figsize=(10, 10))
+fig.suptitle('Control Inputs', fontsize=14, fontweight='bold')
+control_labels = ['Control 1', 'Control 2', 'Control 3', 'Control 4']
+for i in range(U.shape[1]):
+    ax5[i].plot(time[:-1], U[:, i], linewidth=2, color='red')
+    ax5[i].set_ylabel(control_labels[i], fontsize=12)
+    ax5[i].grid(True, alpha=0.3)
+ax5[-1].set_xlabel('Time (s)', fontsize=12)
+plt.tight_layout()
+
+# Show graphs:
 plt.show()
