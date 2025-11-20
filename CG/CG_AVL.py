@@ -53,7 +53,7 @@ def calc_c(a, b, steps):
 
 # Problem parameters:
 x_0 = np.array([5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-x_f = np.array([15, 0, 0, 0, 0, 0, 0, 0, 100, 50, 10, 0])
+x_f = np.array([15, 0, 0, 0, 0, 0, 0, 0, 100, 50, 50, 0])
 
 # Time parameters
 dt = 0.1
@@ -155,9 +155,9 @@ plt.tight_layout()
 # Plot controls:
 fig, ax5 = plt.subplots(4, 1, figsize=(10, 10))
 fig.suptitle('Control Inputs', fontsize=14, fontweight='bold')
-control_labels = ['Control 1', 'Control 2', 'Control 3', 'Control 4']
+control_labels = ['Camber (deg)', 'Aileron (deg)', 'Elevator (deg)', 'Rudder (deg)']
 for i in range(U.shape[1]):
-    ax5[i].plot(time[:-1], U[:, i], linewidth=2, color='red')
+    ax5[i].plot(time[:-1], np.rad2deg(U[:, i]), linewidth=2, color='red')
     ax5[i].set_ylabel(control_labels[i], fontsize=12)
     ax5[i].grid(True, alpha=0.3)
 ax5[-1].set_xlabel('Time (s)', fontsize=12)
