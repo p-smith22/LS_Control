@@ -10,3 +10,9 @@ Additionally, the state vector is 12 components, so a much higher dimensionality
 ## LQR Controller - `LQR` Directory
 
 * `Cart_Pole.py` - Simple cart pole problem that uses ARE to solve for optimal controls.
+
+## MPC Controller - `MPC` Directory
+
+* `driver_SD.py` - Simple spring dashpot mass system. 
+* `driver_AVL.py` - AVL example using MPC controller.
+* `src` Directory - Contains the utils and background functions for MPC.
