@@ -53,7 +53,7 @@ Q = np.array([[0.0001, 0, 0, 0],
               [0, 0, 0, 0.0001]])  # Penalizes difference between subsequent u values
 
 # State weight matrices:
-P = 10 * np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+P = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
               [0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
               [0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
               [0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
