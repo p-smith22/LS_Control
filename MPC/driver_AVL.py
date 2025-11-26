@@ -23,8 +23,8 @@ f = 50  # Prediction horizon
 v = 50  # Control horizon
 
 # Simulation parameters:
-dt = 0.01 # s
-t_end = 10  # s
+dt = 0.01  # s
+t_end = 20  # s
 n_tsteps = int(t_end/dt)
 time = np.linspace(0, t_end, n_tsteps)
 time_ctrl = np.linspace(0, t_end, n_tsteps - f)
@@ -42,32 +42,44 @@ C_cts = np.eye(12)
 # Initial conditions:
 x0 = np.array([15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
-# Control weight matrices:
-Q0 = np.array([[0.00001, 0, 0, 0],
-               [0, 0.00001, 0, 0],
-               [0, 0, 0.00001, 0],
-               [0, 0, 0, 0.00001]])  # Penalizes size of current u
-Q = np.array([[0.0001, 0, 0, 0],
-              [0, 0.0001, 0, 0],
-              [0, 0, 0.0001, 0],
-              [0, 0, 0, 0.0001]])  # Penalizes difference between subsequent u values
-
-# State weight matrices:
-P = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10],])
+# Define weight scales:
+Q0_scaler = 1000000
+Q_scaler = 0.0001
+P_scaler = 0.00001
 
 ####################################################################
 
+# --- Define weight matrices:
+# Penalize current size of u:
+Q0 = np.array([[0.00001, 0, 0, 0],
+               [0, 0.00001, 0, 0],
+               [0, 0, 0.0001, 0],
+               [0, 0, 0, 0.00001]])
+Q0 *= Q0_scaler
+
+# Penalize difference between u values at subsequent steps:
+Q = np.array([[0.0001, 0, 0, 0],
+              [0, 0.0001, 0, 0],
+              [0, 0, 0.0001, 0],
+              [0, 0, 0, 0.0001]])
+Q *= Q_scaler
+
+# Penalize error in objective:
+P = np.array([[10., 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+              [0, 10., 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+              [0, 0, 10., 0, 0, 0, 0, 0, 0, 0, 0, 0],
+              [0, 0, 0, 10., 0, 0, 0, 0, 0, 0, 0, 0],
+              [0, 0, 0, 0, 10., 0, 0, 0, 0, 0, 0, 0],
+              [0, 0, 0, 0, 0, 10., 0, 0, 0, 0, 0, 0],
+              [0, 0, 0, 0, 0, 0, 10., 0, 0, 0, 0, 0],
+              [0, 0, 0, 0, 0, 0, 0, 10., 0, 0, 0, 0],
+              [0, 0, 0, 0, 0, 0, 0, 0, 10., 0, 0, 0],
+              [0, 0, 0, 0, 0, 0, 0, 0, 0, 10., 0, 0],
+              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10., 0],
+              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10.]])
+P *= P_scaler
+
+# --- Develop MPC problem ---
 # Fetch dimensions:
 r = C_cts.shape[0]
 m = B_cts.shape[1]
@@ -104,18 +116,12 @@ for i in range(f):
 # --- Desired trajectories ---
 traj = np.zeros((n_tsteps, 12))
 traj[:, 0] = 15 * np.ones(n_tsteps)
-traj[:, 1] = np.linspace(0, 5, n_tsteps)
-traj[:, 2] = np.linspace(0, 5, n_tsteps)
-traj[:, 3] = np.zeros(n_tsteps)
-traj[:, 4] = np.zeros(n_tsteps)
-traj[:, 5] = np.zeros(n_tsteps)
-traj[:, 6] = np.zeros(n_tsteps)
-traj[:, 7] = np.zeros(n_tsteps)
-traj[:, 8] = np.linspace(0, 50, n_tsteps)
-traj[:, 9] = np.zeros(n_tsteps)
-traj[:, 10] = np.linspace(0, 10, n_tsteps)
-traj[:, 11] = np.zeros(n_tsteps)
+# traj[:, 1] = np.linspace(0, 5, n_tsteps)
+# traj[:, 2] = np.linspace(0, 5, n_tsteps)
+traj[:, 8] = np.linspace(0, 15 * t_end, n_tsteps)
+# traj[:, 10] = np.linspace(0, 10, n_tsteps)
 
+# --- Use MPC controller ---
 # Build MPC object:
 mpc = MPC(A, B, C, f, v, W3, W4, x0, traj)
 
@@ -123,6 +129,7 @@ mpc = MPC(A, B, C, f, v, W3, W4, x0, traj)
 for i in range(n_tsteps - f):
     mpc.control_inputs()
 
+# --- Unpack, plot ---
 # Extract state estimates:
 y_des = []
 y = []

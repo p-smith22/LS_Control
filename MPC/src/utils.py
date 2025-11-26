@@ -92,7 +92,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
 
         # Plot position:
         fig, ax1 = plt.subplots(3, 1, figsize=(10, 8))
-        fig.suptitle('Position States', fontsize=14, fontweight='bold')
+        fig.suptitle('Position States', fontsize=14)
         position_labels = ['x (m)', 'y (m)', 'z (m)']
         position_idx = [8, 9, 10]
         for i, idx in enumerate(position_idx):
@@ -106,7 +106,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
 
         # Plot velocities:
         fig, ax2 = plt.subplots(3, 1, figsize=(10, 8))
-        fig.suptitle('Velocity States', fontsize=14, fontweight='bold')
+        fig.suptitle('Velocity States', fontsize=14)
         velocity_labels = ['u (m/s)', 'v (m/s)', 'w (m/s)']
         velocity_idx = [0, 4, 1]
         for i, idx in enumerate(velocity_idx):
@@ -120,7 +120,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
 
         # Plot Euler angles:
         fig, ax3 = plt.subplots(3, 1, figsize=(10, 8))
-        fig.suptitle('Euler Angles', fontsize=14, fontweight='bold')
+        fig.suptitle('Euler Angles', fontsize=14)
         angle_labels = ['\u0398 (deg)', '\u03A6 (deg)', '\u03A8 (deg)']
         angle_idx = [3, 7, 11]
         for i, idx in enumerate(angle_idx):
@@ -134,7 +134,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
 
         # Plot Euler rates:
         fig, ax4 = plt.subplots(3, 1, figsize=(10, 8))
-        fig.suptitle('Angular Rates', fontsize=14, fontweight='bold')
+        fig.suptitle('Angular Rates', fontsize=14)
         rate_labels = ['q (deg/s)', 'p (deg/s)', 'r (deg/s)']
         rate_idx = [2, 5, 6]
         for i, idx in enumerate(rate_idx):
@@ -147,7 +147,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
         plt.tight_layout()
 
         fig, ax5 = plt.subplots(4, 1, figsize=(10, 10))
-        fig.suptitle('Control Inputs', fontsize=14, fontweight='bold')
+        fig.suptitle('Control Inputs', fontsize=14)
         control_labels = ['Camber (deg)', 'Aileron (deg)', 'Elevator (deg)', 'Rudder (deg)']
         for i in range(ctrl.shape[2]):
             ax5[i].plot(time_ctrl, np.rad2deg(ctrl[:, 0, i]), linewidth=4)
