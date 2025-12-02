@@ -75,7 +75,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
             axs[-1].set_xlabel('Time (s)')
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
-        plt.savefig('./output/Trajectory.png', dpi=600)
+        plt.savefig('./output/Trajectory_SD.png', dpi=600)
 
         # Plot control values:
         plt.figure()
@@ -88,7 +88,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         plt.ylabel('Control Input')
         plt.legend()
         plt.xlim([0, time_ctrl[-1]])
-        plt.savefig('./output/Controls.png', dpi=600)
+        plt.savefig('./output/Controls_SD.png', dpi=600)
 
     # Plot AVL system:
     if opt == 'AVL':
@@ -111,6 +111,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         ax1[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Positions_AVL.png', dpi=600)
 
         # Plot velocities:
         fig, ax2 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
@@ -126,6 +127,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         ax2[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Velocities_AVL.png', dpi=600)
 
         # Plot Euler angles:
         fig, ax3 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
@@ -141,6 +143,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         ax3[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/EulerAngles_AVL.png', dpi=600)
 
         # Plot Euler rates:
         fig, ax4 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
@@ -156,6 +159,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         ax4[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/EulerRates_AVL.png', dpi=600)
 
         fig, ax5 = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
         fig.suptitle('Control Inputs', fontsize=14)
@@ -171,6 +175,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         ax5[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Controls_AVL.png', dpi=600)
 
 def train_rbf():
 
