@@ -4,11 +4,14 @@ Model Predictive Control (MPC) Class
 
 # Import packages:
 import numpy as np
+import osqp
+import scipy.sparse as sp
 
-# Main Class
 class MPC(object):
 
-    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des):
+    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des, u_min, u_max):
+
+        # Assign global class variables:
         self.A = a
         self.B = b
         self.C = c
@@ -18,6 +21,14 @@ class MPC(object):
         self.W4 = w4
         self.x0 = x0
         self.y_des = y_des
+        self.u_min = u_min
+        self.u_max = u_max
+
+        # Print solver option:
+        if self.u_max is None and self.u_min is None:
+            print("SOLVER: Closed-Form")
+        else:
+            print("SOLVER: Bounded Optimization")
 
         # Fetch dimensions:
         self.n = self.A.shape[0]
@@ -100,25 +111,93 @@ class MPC(object):
     # Compute control inputs:
     def control_inputs(self):
 
-        # Extract current desired trajectory:
-        y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]  # shape (f, r)
+        # --- Solve via Closed-Form Solution ---
+        if self.u_max is None and self.u_min is None:
 
-        # Compute the s vector:
-        s = y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
+            # Extract current desired trajectory:
+            y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]  # shape (f, r)
 
-        # Compute the control sequence:
-        input_seq = self.Gain @ s  # shape (v*m,)
-        input_seq = input_seq.reshape(4, -1)
+            # Compute the s vector:
+            s = y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
 
-        # Apply only first input:
-        u0 = np.array([[input_seq[:, 0]]])  # column vector
+            # Compute the control sequence:
+            input_seq = self.Gain @ s  # shape (v*m,)
+            input_seq = input_seq.reshape(self.B.shape[1], -1)
 
-        # Propagate one step:
-        state_kp1, output_k = self.prop_dyn(u0, self.states[self.curr_step])
+            # Apply only first input:
+            u0 = np.array([[input_seq[:, 0]]])  # column vector
 
-        # Append to logs:
-        self.states.append(state_kp1)
-        self.outputs.append(output_k)  # shape (r,1)
+            # Propagate one step:
+            state_kp1, output_k = self.prop_dyn(u0, self.states[self.curr_step])
+
+            # Append to logs:
+            self.states.append(state_kp1)
+            self.outputs.append(output_k)  # shape (r,1)
+            self.inputs.append(u0)
+
+            # Advance step:
+            self.curr_step += 1
+            return
+
+        # --- Solve via Optimization (with Bounds) ---
+        # If only one of the bounds is None, replace with infinite bound to continue with optimization:
+        if self.u_max is None:
+            self.u_max = np.inf
+        if self.u_min is None:
+            self.u_min = -np.inf
+
+        # Extract desired outputs for the next f steps
+        y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]
+        y_des_curr = y_des_curr.flatten().reshape(-1, 1)
+
+        # Compute prediction offset:
+        Ox = self.O @ self.states[self.curr_step]
+        s = Ox - y_des_curr
+
+        # Build QP cost:
+        H = self.M.T @ self.W4 @ self.M + self.W3
+        H = (H + H.T) / 2  # ensure symmetry
+
+        # Cost linear term
+        f = (self.M.T @ (self.W4 @ s)).reshape(self.m * self.v)
+
+        # Convert to sparse:
+        H_sp = sp.csc_matrix(H)
+        f_sp = np.array(f).flatten()
+
+        # --- Build constraints for control limits ---
+        umin = np.tile(self.u_min, self.v)
+        umax = np.tile(self.u_max, self.v)
+
+        # OSQP uses l <= A*x <= u
+        A_ineq = sp.eye(self.m * self.v).tocsc()
+
+        l_bound = umin
+        u_bound = umax
+
+        # ---- Solve QP ----
+        prob = osqp.OSQP()
+        prob.setup(
+            P=H_sp,
+            q=f_sp,
+            A=A_ineq,
+            l=l_bound,
+            u=u_bound,
+            verbose=False
+        )
+
+        res = prob.solve()
+        U_opt = res.x
+
+        # Extract the first control input
+        u0 = U_opt[:self.m].reshape(self.m, 1)
+
+        # Propagate dynamics
+        next_x, yk = self.prop_dyn(u0, self.states[self.curr_step])
+
+        # Log data
+        self.states.append(next_x)
+        self.outputs.append(yk)
         self.inputs.append(u0)
 
         # Advance step:

@@ -47,6 +47,10 @@ Q0_scaler = 1000000
 Q_scaler = 0.0001
 P_scaler = 0.00001
 
+# Define control bounds:
+u_min = -np.deg2rad(np.array([30, 30, 30, 30]))
+u_max = np.deg2rad(np.array([30, 30, 30, 30]))
+
 ####################################################################
 
 # --- Define weight matrices:
@@ -124,6 +128,7 @@ traj[:, 8] = np.linspace(0, 15 * t_end, n_tsteps)
 # --- Use MPC controller ---
 # Build MPC object:
 mpc = MPC(A, B, C, f, v, W3, W4, x0, traj)
+# mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
 
 # Use controller:
 for i in range(n_tsteps - f):

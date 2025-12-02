@@ -57,13 +57,17 @@ x0 = np.zeros((4, 1))
 # Control weight matrices:
 m = B_cts.shape[1]
 Q = np.zeros((m, m , v))
-Q[:, :, 0] = 0.00001  # Penalizes size of current u
-Q[:, :, 1:] = 0.0001  # Penalizes difference between subsequent u values
+Q[:, :, 0] = 1e-5  # Penalizes size of current u
+Q[:, :, 1:] = 1e-2  # Penalizes difference between subsequent u values
 
 # State weight matrices:
 r = C_cts.shape[0]
 P = np.zeros((r, r, f))
-P[:, :, :] = 100
+P[:, :, :] = 1e2
+
+# Set control limits (can set these as None if you only want one or no bounds):
+u_max = np.array([5])
+u_min = -u_max
 
 ####################################################################
 
@@ -109,10 +113,10 @@ for i in range(f):
 
 # Step trajectory:
 traj = np.zeros((n_tsteps, 1))
-traj[:, 0]=0.2*np.ones((n_tsteps,1)).flatten()
+traj[:, 0]= (2.5 / 100) * np.ones((n_tsteps,1)).flatten()
 
 # Build MPC object:
-mpc = MPC(A, B, C, f, v, W3, W4, x0, traj)
+mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
 
 # Use controller:
 for i in range(n_tsteps - f):
@@ -125,7 +129,7 @@ ctrl = []
 for j in np.arange(n_tsteps - f):
     y.append(mpc.outputs[j][ :, 0])
     y_des.append(traj[j, :])
-    ctrl.append(mpc.inputs[j][:, 0])
+    ctrl.append(mpc.inputs[j][0, 0])
 
 # Switch to arrays:
 y = np.array(y)
