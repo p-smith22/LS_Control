@@ -43,13 +43,13 @@ C_cts = np.eye(12)
 x0 = np.array([15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
 # Define weight scales:
-Q0_scaler = 1000000
-Q_scaler = 0.0001
-P_scaler = 0.00001
+Q0_scaler = 1e-4
+Q_scaler = 1e-2
+P_scaler = 1e2
 
 # Define control bounds:
-u_min = -np.deg2rad(np.array([30, 30, 30, 30]))
-u_max = np.deg2rad(np.array([30, 30, 30, 30]))
+u_max = np.deg2rad(np.array([20, 20, 20, 20])).T
+u_min = -u_max
 
 ####################################################################
 
@@ -119,16 +119,12 @@ for i in range(f):
 
 # --- Desired trajectories ---
 traj = np.zeros((n_tsteps, 12))
-traj[:, 0] = 15 * np.ones(n_tsteps)
-# traj[:, 1] = np.linspace(0, 5, n_tsteps)
-# traj[:, 2] = np.linspace(0, 5, n_tsteps)
+traj[:, 0] = np.linspace(15, 10, n_tsteps)
 traj[:, 8] = np.linspace(0, 15 * t_end, n_tsteps)
-# traj[:, 10] = np.linspace(0, 10, n_tsteps)
 
 # --- Use MPC controller ---
 # Build MPC object:
-mpc = MPC(A, B, C, f, v, W3, W4, x0, traj)
-# mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
+mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
 
 # Use controller:
 for i in range(n_tsteps - f):
@@ -150,7 +146,7 @@ y_des = np.array(y_des)
 ctrl = np.array(ctrl)
 
 # Plot graphs:
-plot_graphs(time_ctrl, y, y_des, ctrl, 'AVL')
+plot_graphs(time_ctrl, y, y_des, ctrl, 'AVL', np.array([u_min, u_max]))
 
 # Show results:
 plt.show()

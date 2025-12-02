@@ -69,6 +69,10 @@ P[:, :, :] = 1e2
 u_max = np.array([5])
 u_min = -u_max
 
+# Optional: NO BOUNDS:
+# u_max = None
+# u_min = None
+
 ####################################################################
 
 # Fetch dimensions:
@@ -137,7 +141,7 @@ y_des = np.array(y_des)
 ctrl = np.array(ctrl)
 
 # Plot graphs:
-plot_graphs(time_ctrl, y, y_des, ctrl, 'spring_dashpot')
+plot_graphs(time_ctrl, y, y_des, ctrl, 'spring_dashpot', np.array([u_min, u_max]))
 
 # Show results:
 plt.show()

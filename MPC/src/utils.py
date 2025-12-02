@@ -50,7 +50,7 @@ def simulate(a, b, c, u, x0, t_end):
     # Return states:
     return y, x
 
-def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
+def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
 
     # Plot spring dashpot system:
     if opt == 'spring_dashpot':
@@ -73,15 +73,22 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
                 axs[i].set_ylabel(lab_opts[i])
             axs[-1].legend(title="Trajectory")
             axs[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
         plt.savefig('./output/Trajectory.png', dpi=600)
 
         # Plot control values:
         plt.figure()
         plt.plot(time_ctrl, ctrl, linewidth=4)
+        if bounds[0] is not None:
+            plt.axhline(y=bounds[0], color='r', linestyle='--')
+        if bounds[1] is not None:
+            plt.axhline(y=bounds[1], color='r', linestyle='--')
         plt.xlabel('Time (s)')
         plt.ylabel('Control Input')
-        plt.savefig('./output/Controls.png', dpi=600)
         plt.legend()
+        plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Controls.png', dpi=600)
 
     # Plot AVL system:
     if opt == 'AVL':
@@ -91,7 +98,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
                     'phi (deg)', 'x (m)', 'y (m)', 'z (m)', 'psi (deg)']
 
         # Plot position:
-        fig, ax1 = plt.subplots(3, 1, figsize=(10, 8))
+        fig, ax1 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         fig.suptitle('Position States', fontsize=14)
         position_labels = ['x (m)', 'y (m)', 'z (m)']
         position_idx = [8, 9, 10]
@@ -103,9 +110,10 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
             ax1[i].legend()
         ax1[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
 
         # Plot velocities:
-        fig, ax2 = plt.subplots(3, 1, figsize=(10, 8))
+        fig, ax2 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         fig.suptitle('Velocity States', fontsize=14)
         velocity_labels = ['u (m/s)', 'v (m/s)', 'w (m/s)']
         velocity_idx = [0, 4, 1]
@@ -117,9 +125,10 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
             ax2[i].legend()
         ax2[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
 
         # Plot Euler angles:
-        fig, ax3 = plt.subplots(3, 1, figsize=(10, 8))
+        fig, ax3 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         fig.suptitle('Euler Angles', fontsize=14)
         angle_labels = ['\u0398 (deg)', '\u03A6 (deg)', '\u03A8 (deg)']
         angle_idx = [3, 7, 11]
@@ -131,9 +140,10 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
             ax3[i].legend()
         ax3[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
 
         # Plot Euler rates:
-        fig, ax4 = plt.subplots(3, 1, figsize=(10, 8))
+        fig, ax4 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         fig.suptitle('Angular Rates', fontsize=14)
         rate_labels = ['q (deg/s)', 'p (deg/s)', 'r (deg/s)']
         rate_idx = [2, 5, 6]
@@ -145,16 +155,22 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt):
             ax4[i].legend()
         ax4[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
 
-        fig, ax5 = plt.subplots(4, 1, figsize=(10, 10))
+        fig, ax5 = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
         fig.suptitle('Control Inputs', fontsize=14)
         control_labels = ['Camber (deg)', 'Aileron (deg)', 'Elevator (deg)', 'Rudder (deg)']
-        for i in range(ctrl.shape[2]):
-            ax5[i].plot(time_ctrl, np.rad2deg(ctrl[:, 0, i]), linewidth=4)
+        for i in range(ctrl.shape[1]):
+            ax5[i].plot(time_ctrl, np.rad2deg(ctrl[:, i]), linewidth=4)
+            if bounds[0, i] is not None:
+                ax5[i].axhline(np.rad2deg(bounds[0, i]), color='r', linestyle='--')
+            if bounds[1, i] is not None:
+                ax5[i].axhline(np.rad2deg(bounds[1, i]), color='r', linestyle='--')
             ax5[i].set_ylabel(control_labels[i], fontsize=12)
             ax5[i].grid(True, alpha=0.3)
         ax5[-1].set_xlabel('Time (s)', fontsize=12)
         plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
 
 def train_rbf():
 

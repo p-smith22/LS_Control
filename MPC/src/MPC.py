@@ -151,12 +151,12 @@ class MPC(object):
         y_des_curr = y_des_curr.flatten().reshape(-1, 1)
 
         # Compute prediction offset:
-        Ox = self.O @ self.states[self.curr_step]
+        Ox = (self.O @ self.states[self.curr_step]).reshape(-1, 1)
         s = Ox - y_des_curr
 
         # Build QP cost:
         H = self.M.T @ self.W4 @ self.M + self.W3
-        H = (H + H.T) / 2  # ensure symmetry
+        H = (H + H.T) / 2
 
         # Cost linear term
         f = (self.M.T @ (self.W4 @ s)).reshape(self.m * self.v)
