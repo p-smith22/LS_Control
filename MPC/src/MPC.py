@@ -9,7 +9,7 @@ import scipy.sparse as sp
 
 class MPC(object):
 
-    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des, u_min, u_max):
+    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des, u_min, u_max, f_type):
 
         # Assign global class variables:
         self.A = a
@@ -23,17 +23,38 @@ class MPC(object):
         self.y_des = y_des
         self.u_min = u_min
         self.u_max = u_max
+        self.f_type = f_type
+
+        # Ensure function is one of the two options:
+        assert self.f_type in ['linear', 'nonlinear']
+
+        # Precompute matrices if linear problem (don't need to linearize):
+        if self.f_type is 'linear':
+
+            # Fetch dimensions:
+            self.n = self.A.shape[0]
+            self.m = self.B.shape[1]
+            self.r = self.C.shape[0]
+
+            # Precompute O, M, and Gain:
+            self.O, self.M, self.Gain = self.precompute_matrix()
+
+        # If we need to linearize each step, A and B change, so cannot precompute:
+        else:
+
+            # Initialize for later:
+            self.n = 0
+            self.m = 0
+            self.r = 0
+            self.O = 0
+            self.M = 0
+            self.Gain = 0
 
         # Print solver option:
         if self.u_max is None and self.u_min is None:
             print("SOLVER: Closed-Form")
         else:
             print("SOLVER: Bounded Optimization")
-
-        # Fetch dimensions:
-        self.n = self.A.shape[0]
-        self.m = self.B.shape[1]
-        self.r = self.C.shape[0]
 
         # Track current step:
         self.curr_step = 0
@@ -46,8 +67,6 @@ class MPC(object):
         self.inputs = []
         self.outputs = []
 
-        # Precompute O, M, and Gain:
-        self.O, self.M, self.Gain = self.precompute_matrix()
 
     # Precompute matrices to save time later:
     def precompute_matrix(self):
@@ -110,6 +129,12 @@ class MPC(object):
 
     # Compute control inputs:
     def control_inputs(self):
+
+        # Check if the problem is non-linear.
+        if self.f_type == 'linear':
+            pass
+        elif self.f_type == 'nonlinear':
+            self.linearize()
 
         # --- Solve via Closed-Form Solution ---
         if self.u_max is None and self.u_min is None:
@@ -175,7 +200,7 @@ class MPC(object):
         l_bound = umin
         u_bound = umax
 
-        # ---- Solve QP ----
+        # ---- Solve QP for Control Solution ----
         prob = osqp.OSQP()
         prob.setup(
             P=H_sp,
@@ -202,3 +227,7 @@ class MPC(object):
 
         # Advance step:
         self.curr_step += 1
+
+    # Linearizes at each timestep to handle nonlinear functions:
+    def linearize(self):
+        pass

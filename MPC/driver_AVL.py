@@ -1,15 +1,31 @@
 """
 Driver function that defines the system
 
-Takes a continuous system
-x_dot = Ax + Bu
+--- Takes the following nonlinear problem ---
+Consider a 2D simple aerodynamic problem modelled by:
+x = [px, py, vx, vy] --> State Vector
+u = [ux, uy] --> Control Vector
+\dot{px} = vx
+\dot{py} = vy
+\dot{vx} = ux - c * vx * sqrt(vx^2 + vy^2)
+\dot{vy} = uy - c * vy * sqrt(vx^2 + vy^2)
+where c is a drag constant (e.g. 0.4)
+
+--- Describing MPC Problem ---
+As this problem is nonlinear, we can linearize the problem at any given point as:
+A_k = df/dx|_{x=xk} and B_k = df/du|_{u=uk}
+
+This can then be evaluated as a regular linear system in which:
+\dot{x} = Ax + Bu
 y = Cx
-and discretizes such that
+
+which will again need to be discretizes such that
 x_{k+1} = Ax_{k} + Bu_{k}
 y_{k} = Cx_{k}
 
-Therefore, for nw systems, simply change the definition of the problem
-to your cts system and the rest will adjust automatically
+Since we already have this discretization implementation and the following MPC architecture, the
+only addition needed is a function to linearize at each step.
+
 """
 
 # Import packages:
@@ -124,7 +140,7 @@ traj[:, 8] = np.linspace(0, 15 * t_end, n_tsteps)
 
 # --- Use MPC controller ---
 # Build MPC object:
-mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
+mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max, 'linear') # Already technically linearized
 
 # Use controller:
 for i in range(n_tsteps - f):

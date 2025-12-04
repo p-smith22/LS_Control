@@ -8,7 +8,7 @@ and discretizes such that
 x_{k+1} = Ax_{k} + Bu_{k}
 y_{k} = Cx_{k}
 
-Therefore, for nw systems, simply change the definition of the problem
+Therefore, for new systems, simply change the definition of the problem
 to your cts system and the rest will adjust automatically
 """
 
@@ -120,7 +120,7 @@ traj = np.zeros((n_tsteps, 1))
 traj[:, 0]= (2.5 / 100) * np.ones((n_tsteps,1)).flatten()
 
 # Build MPC object:
-mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max)
+mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max, 'linear')
 
 # Use controller:
 for i in range(n_tsteps - f):
