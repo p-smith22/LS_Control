@@ -1,31 +1,15 @@
 """
 Driver function that defines the system
 
---- Takes the following nonlinear problem ---
-Consider a 2D simple aerodynamic problem modelled by:
-x = [px, py, vx, vy] --> State Vector
-u = [ux, uy] --> Control Vector
-\dot{px} = vx
-\dot{py} = vy
-\dot{vx} = ux - c * vx * sqrt(vx^2 + vy^2)
-\dot{vy} = uy - c * vy * sqrt(vx^2 + vy^2)
-where c is a drag constant (e.g. 0.4)
-
---- Describing MPC Problem ---
-As this problem is nonlinear, we can linearize the problem at any given point as:
-A_k = df/dx|_{x=xk} and B_k = df/du|_{u=uk}
-
-This can then be evaluated as a regular linear system in which:
-\dot{x} = Ax + Bu
+Takes a continuous system
+x_dot = Ax + Bu
 y = Cx
-
-which will again need to be discretizes such that
+and discretizes such that
 x_{k+1} = Ax_{k} + Bu_{k}
 y_{k} = Cx_{k}
 
-Since we already have this discretization implementation and the following MPC architecture, the
-only addition needed is a function to linearize at each step.
-
+Therefore, for nw systems, simply change the definition of the problem
+to your cts system and the rest will adjust automatically
 """
 
 # Import packages:
@@ -144,7 +128,7 @@ mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max, 'linear') # Already tec
 
 # Use controller:
 for i in range(n_tsteps - f):
-    mpc.control_inputs()
+    mpc.control_inputs(None, None, None)
 
 # --- Unpack, plot ---
 # Extract state estimates:
@@ -154,7 +138,7 @@ ctrl = []
 for j in np.arange(n_tsteps - f):
     y.append(mpc.outputs[j][ :, 0])
     y_des.append(traj[j, :])
-    ctrl.append(mpc.inputs[j][:, 0])
+    ctrl.append(mpc.inputs[j][:])
 
 # Switch to arrays:
 y = np.array(y)

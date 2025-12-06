@@ -91,7 +91,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         plt.savefig('./output/Controls_SD.png', dpi=600)
 
     # Plot AVL system:
-    if opt == 'AVL':
+    elif opt == 'AVL':
 
         # Plot desired vs actual trajectory:
         lab_opts = ['u (m/s)', 'w (m/s)', 'q (deg/s)', 'theta (deg)', 'v (m/s)', 'p (deg/s)', 'r (deg/s)',
@@ -176,6 +176,39 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
         plt.savefig('./output/Controls_AVL.png', dpi=600)
+
+    elif opt == 'NL_Drag':
+
+        # Plot desired vs actual trajectory:
+        lab_opts = ['x (m)', 'y (m)', 'vx (m/s)', 'vy (m/s)']
+        fig, axs = plt.subplots(4, 1, sharex=True)
+        for i in range(4):
+            axs[i].plot(time_ctrl, y[:, i], label='Controlled')
+            axs[i].plot(time_ctrl, y_des[:, i], label='Desired')
+            axs[i].set_ylabel(lab_opts[i])
+        axs[-1].legend(title="Trajectory")
+        axs[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Trajectory_NLDrag.png', dpi=600)
+
+        lab_opts = ['ux (m/s)', 'uy (m/s)']
+        fig, axs = plt.subplots(2, 1, sharex=True)
+        for i in range(2):
+            axs[i].plot(time_ctrl, ctrl[:, i], linewidth=4)
+            if bounds[0, i] is not None:
+                axs[i].axhline(y=bounds[0, i], color='r', linestyle='--')
+            if bounds[1, i] is not None:
+                axs[i].axhline(y=bounds[1, i], color='r', linestyle='--')
+            axs[i].set_ylabel(lab_opts[i])
+        axs[-1].legend(title="Controls")
+        axs[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        plt.xlim([0, time_ctrl[-1]])
+        plt.savefig('./output/Controls_NLDrag.png', dpi=600)
+
+    else:
+        raise Exception('ERROR! Invalid plotting option.')
 
 def train_rbf():
 

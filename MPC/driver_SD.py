@@ -63,7 +63,7 @@ Q[:, :, 1:] = 1e-2  # Penalizes difference between subsequent u values
 # State weight matrices:
 r = C_cts.shape[0]
 P = np.zeros((r, r, f))
-P[:, :, :] = 1e2
+P[:, :, :] = 1e3
 
 # Set control limits (can set these as None if you only want one or no bounds):
 u_max = np.array([5])
@@ -120,11 +120,11 @@ traj = np.zeros((n_tsteps, 1))
 traj[:, 0]= (2.5 / 100) * np.ones((n_tsteps,1)).flatten()
 
 # Build MPC object:
-mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, u_min, u_max, 'linear')
+mpc = MPC(A, B, C, f, v, W3, W4, x0, traj, -4, 4, 'linear')
 
 # Use controller:
 for i in range(n_tsteps - f):
-    mpc.control_inputs()
+    mpc.control_inputs(None, None, None)
 
 # Extract state estimates:
 y_des = []
@@ -133,7 +133,7 @@ ctrl = []
 for j in np.arange(n_tsteps - f):
     y.append(mpc.outputs[j][ :, 0])
     y_des.append(traj[j, :])
-    ctrl.append(mpc.inputs[j][0, 0])
+    ctrl.append(mpc.inputs[j][:])
 
 # Switch to arrays:
 y = np.array(y)

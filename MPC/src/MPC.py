@@ -29,7 +29,7 @@ class MPC(object):
         assert self.f_type in ['linear', 'nonlinear']
 
         # Precompute matrices if linear problem (don't need to linearize):
-        if self.f_type is 'linear':
+        if self.f_type == 'linear':
 
             # Fetch dimensions:
             self.n = self.A.shape[0]
@@ -43,12 +43,12 @@ class MPC(object):
         else:
 
             # Initialize for later:
-            self.n = 0
-            self.m = 0
-            self.r = 0
-            self.O = 0
-            self.M = 0
-            self.Gain = 0
+            self.n = None
+            self.m = None
+            self.r = None
+            self.O = None
+            self.M = None
+            self.Gain = None
 
         # Print solver option:
         if self.u_max is None and self.u_min is None:
@@ -128,13 +128,27 @@ class MPC(object):
         return xkp1, yk
 
     # Compute control inputs:
-    def control_inputs(self):
+    def control_inputs(self, a_lin, b_lin, c_lin):
 
         # Check if the problem is non-linear.
         if self.f_type == 'linear':
             pass
-        elif self.f_type == 'nonlinear':
-            self.linearize()
+
+        # Expects the linearized equations:
+        elif self.f_type == 'nonlinear' and a_lin is not None and b_lin is not None and c_lin is not None:
+
+            # Assign matrices:
+            self.A = a_lin
+            self.B = b_lin
+            self.C = c_lin
+
+            # Fetch dimensions:
+            self.n = self.A.shape[0]
+            self.m = self.B.shape[1]
+            self.r = self.C.shape[0]
+
+            # Compute MPC matrices now that we have A and B:
+            self.O, self.M, self.Gain = self.precompute_matrix()
 
         # --- Solve via Closed-Form Solution ---
         if self.u_max is None and self.u_min is None:
@@ -212,10 +226,11 @@ class MPC(object):
         )
 
         res = prob.solve()
-        U_opt = res.x
+        u_opt = res.x
+        u_opt = u_opt.reshape(self.m, -1)
 
         # Extract the first control input
-        u0 = U_opt[:self.m].reshape(self.m, 1)
+        u0 = u_opt[:, 0]
 
         # Propagate dynamics
         next_x, yk = self.prop_dyn(u0, self.states[self.curr_step])
@@ -227,7 +242,3 @@ class MPC(object):
 
         # Advance step:
         self.curr_step += 1
-
-    # Linearizes at each timestep to handle nonlinear functions:
-    def linearize(self):
-        pass
