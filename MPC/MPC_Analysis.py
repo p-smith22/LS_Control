@@ -47,8 +47,8 @@ plot_heatmap(ctrl_cost_grid, v_unique, f_unique,   "Control Effort", cmap="plasm
 # --- CONTROLS AND TRAJECTORY ---
 # Select trajectories:
 selected_runs = [
-    (90, 50),
-    (50, 50),
+    (10, 10),
+    (20, 20),
 ]
 
 # Define colors for trajectories:
@@ -66,32 +66,44 @@ for (f, v) in selected_runs:
 if len(runs) == 0:
     raise RuntimeError("No selected runs found.")
 
+# Get time vector from first run:
+dt = 0.01
+time = runs[0][2]["trajectory"].shape[0] * dt
+t = np.linspace(0, time, runs[0][2]["trajectory"].shape[0])
+
 # Initialize trajectory plots:
 fig_states, axes_states = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
 axes_states = axes_states.flatten()
 
 # Define labels:
-state_labels = ["$p_x$", "$p_y$", "$v_x$", "$v_y$"]
-state_refs = [20, 20, 0, 0]  # reference trajectory
+state_labels = ["$p_x$ (m)", "$p_y$ (m)", "$v_x$ (m/s)", "$v_y$ (m/s)"]
+
+# Generate reference trajectory for plotting:
+t_ref = np.linspace(0, time, len(t))
+ref_trajectory = np.zeros((len(t), 4))
+for i in range(len(t)):
+    ref_trajectory[i, 0] = 4 * t_ref[i]  # px = 4*t
+    ref_trajectory[i, 1] = 30            # py = 30
+    ref_trajectory[i, 2] = 4             # vx = 4
+    ref_trajectory[i, 3] = 0             # vy = 0
 
 # Plot:
 for (f, v, data), color in zip(runs, colors):
     x = data["trajectory"]
-    time = x.shape[0] * 0.01
-    t = np.linspace(0, time, x.shape[0])
+    t_data = np.linspace(0, x.shape[0] * dt, x.shape[0])
     for i in range(4):
-        axes_states[i].plot(t, x[:, i], color=color, linewidth=2, label=f"f={f}, v={v}")
+        axes_states[i].plot(t_data, x[:, i], color=color, linewidth=2, label=f"f={f}, v={v}")
 
 # Reference lines:
-for i, ref in enumerate(state_refs):
-    axes_states[i].axhline(ref, color="black", linestyle="--", linewidth=1.5, label="Reference" if i == 0 else None)
+for i in range(4):
+    axes_states[i].plot(t_ref, ref_trajectory[:, i], color="black", linestyle="--", linewidth=1.5, label="Reference" if i == 0 else None)
 
 # Set labels:
 for ax, label in zip(axes_states, state_labels):
     ax.set_ylabel(label)
     ax.grid(True)
-axes_states[2].set_xlabel("Time")
-axes_states[3].set_xlabel("Time")
+axes_states[2].set_xlabel("Time (s)")
+axes_states[3].set_xlabel("Time (s)")
 
 # Plotting parameters:
 axes_states[0].legend(loc="best", fontsize=9, frameon=True)
@@ -104,20 +116,20 @@ fig_ctrl, axes_ctrl = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 # Plot:
 for (f, v, data), color in zip(runs, colors):
     u = data["control"]
-    t = np.linspace(0, time, u.shape[0])
-    axes_ctrl[0].plot(t, u[:, 0], color=color, linewidth=2, label=f"f={f}, v={v}")
-    axes_ctrl[1].plot(t, u[:, 1], color=color, linewidth=2)
+    t_ctrl = np.linspace(0, u.shape[0] * dt, u.shape[0])
+    axes_ctrl[0].plot(t_ctrl, u[:, 0], color=color, linewidth=2, label=f"f={f}, v={v}")
+    axes_ctrl[1].plot(t_ctrl, u[:, 1], color=color, linewidth=2)
 
 # Control limits:
-axes_ctrl[0].axhline(20, color="black", linestyle="--", linewidth=1.5, label="Reference")
-axes_ctrl[0].axhline(-10, color="black", linestyle="--", linewidth=1.5, label="Reference")
-axes_ctrl[1].axhline(20, color="black", linestyle="--", linewidth=1.5, label="Reference")
-axes_ctrl[1].axhline(-10, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[0].axhline(20, color="black", linestyle="--", linewidth=1.5, label="Limit")
+axes_ctrl[0].axhline(-20, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[1].axhline(20, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[1].axhline(-20, color="black", linestyle="--", linewidth=1.5)
 
 # Set labels:
-axes_ctrl[0].set_ylabel("$u_x$")
-axes_ctrl[1].set_ylabel("$u_y$")
-axes_ctrl[1].set_xlabel("Time")
+axes_ctrl[0].set_ylabel("$u_x$ (m/s²)")
+axes_ctrl[1].set_ylabel("$u_y$ (m/s²)")
+axes_ctrl[1].set_xlabel("Time (s)")
 for ax in axes_ctrl:
     ax.grid(True)
 
@@ -125,6 +137,26 @@ for ax in axes_ctrl:
 axes_ctrl[0].legend(loc="best", fontsize=9, frameon=True)
 fig_ctrl.suptitle("Control Inputs Overlay", fontsize=14)
 fig_ctrl.tight_layout(rect=[0, 0, 1, 0.95])
+
+# --- 2D X-Y TRAJECTORY PLOT ---
+fig_xy, ax_xy = plt.subplots(figsize=(10, 8))
+
+# Plot trajectories:
+for (f, v, data), color in zip(runs, colors):
+    x = data["trajectory"]
+    ax_xy.plot(x[:, 0], x[:, 1], color=color, linewidth=2, label=f"f={f}, v={v}")
+
+# Plot reference line (constant y = 30):
+x_max = max([data["trajectory"][-1, 0] for _, _, data in runs])
+ax_xy.plot([0, x_max], [30, 30], 'k--', linewidth=1.5, label='Reference')
+
+# Set labels and formatting:
+ax_xy.set_xlabel("$p_x$ (m)", fontsize=12)
+ax_xy.set_ylabel("$p_y$ (m)", fontsize=12)
+ax_xy.grid(True, alpha=0.3)
+ax_xy.legend(loc="best", fontsize=10, frameon=True)
+ax_xy.set_title("2D Trajectory Overlay", fontsize=14)
+fig_xy.tight_layout()
 
 # Show graphs:
 plt.show()
