@@ -50,18 +50,12 @@ class MPC(object):
             self.M = None
             self.Gain = None
 
-        # Print solver option:
-        if self.u_max is None and self.u_min is None:
-            print("SOLVER: Closed-Form")
-        else:
-            print("SOLVER: Bounded Optimization")
-
         # Track current step:
         self.curr_step = 0
 
         # Initialize states:
         self.states = []
-        self.states.append(self.x0)
+        self.states.append(self.x0.reshape(-1, 1))
 
         # Initialize i/o:
         self.inputs = []
@@ -157,7 +151,7 @@ class MPC(object):
             y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]  # shape (f, r)
 
             # Compute the s vector:
-            s = y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
+            s =  y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
 
             # Compute the control sequence:
             input_seq = self.Gain @ s  # shape (v*m,)
@@ -197,24 +191,25 @@ class MPC(object):
         H = self.M.T @ self.W4 @ self.M + self.W3
         H = (H + H.T) / 2
 
-        # Cost linear term
+        # Cost linear term:
         f = (self.M.T @ (self.W4 @ s)).reshape(self.m * self.v)
 
-        # Convert to sparse:
+        # Convert to sparse (needed for OSQP):
         H_sp = sp.csc_matrix(H)
         f_sp = np.array(f).flatten()
 
-        # --- Build constraints for control limits ---
-        umin = np.tile(self.u_min, self.v)
-        umax = np.tile(self.u_max, self.v)
+        # Build constraints for OSQP:
+        umin = np.repeat(self.u_min, self.v)
+        umax = np.repeat(self.u_max, self.v)
 
-        # OSQP uses l <= A*x <= u
+        # OSQP uses l <= A*x <= u:
         A_ineq = sp.eye(self.m * self.v).tocsc()
 
+        # Construct bounds:
         l_bound = umin
         u_bound = umax
 
-        # ---- Solve QP for Control Solution ----
+        # Solve QP for Control Solution:
         prob = osqp.OSQP()
         prob.setup(
             P=H_sp,
@@ -225,19 +220,24 @@ class MPC(object):
             verbose=False
         )
 
+        # Unpack solution:
         res = prob.solve()
-        u_opt = res.x
-        u_opt = u_opt.reshape(self.m, -1)
 
-        # Extract the first control input
+        # Define controls:
+        u_opt = res.x.reshape(self.v, self.m).T
         u0 = u_opt[:, 0]
 
-        # Propagate dynamics
-        next_x, yk = self.prop_dyn(u0, self.states[self.curr_step])
+        # Do not propagate if nonlinear, want to test ability to linearize and track:
+        if not self.f_type == 'nonlinear':
 
-        # Log data
-        self.states.append(next_x)
-        self.outputs.append(yk)
+            # Propagate dynamics:
+            next_x, yk = self.prop_dyn(u0, self.states[self.curr_step])
+
+            # Log data back to driver file:
+            self.states.append(next_x)
+            self.outputs.append(yk)
+
+        # Append control input:
         self.inputs.append(u0)
 
         # Advance step:

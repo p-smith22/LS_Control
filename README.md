@@ -15,4 +15,6 @@ Additionally, the state vector is 12 components, so a much higher dimensionality
 
 * `driver_SD.py` - Simple spring dashpot mass system. 
 * `driver_AVL.py` - AVL example using MPC controller.
+* `NL_Drag.py` - A nonlinear drag model, which demonstrates how a nonlinear model would have to be linearized at each 
+step prior to MPC. 
 * `src` Directory - Contains the utils and background functions for MPC.

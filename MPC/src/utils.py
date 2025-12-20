@@ -192,6 +192,7 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
         plt.xlim([0, time_ctrl[-1]])
         plt.savefig('./output/Trajectory_NLDrag.png', dpi=600)
 
+        # Plot controls:
         lab_opts = ['ux (m/s)', 'uy (m/s)']
         fig, axs = plt.subplots(2, 1, sharex=True)
         for i in range(2):
@@ -201,11 +202,22 @@ def plot_graphs(time_ctrl, y, y_des, ctrl, opt, bounds):
             if bounds[1, i] is not None:
                 axs[i].axhline(y=bounds[1, i], color='r', linestyle='--')
             axs[i].set_ylabel(lab_opts[i])
-        axs[-1].legend(title="Controls")
         axs[-1].set_xlabel('Time (s)')
         plt.tight_layout()
         plt.xlim([0, time_ctrl[-1]])
         plt.savefig('./output/Controls_NLDrag.png', dpi=600)
+
+        # 2D X-Y trajectory plot:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.plot(y[:, 0], y[:, 1], linewidth=4, label='Controlled')
+        ax.plot(y_des[:, 0], y_des[:, 1], linewidth=4, label='Desired', linestyle='--')
+        ax.set_xlabel('x (m)', fontsize=12)
+        ax.set_ylabel('y (m)', fontsize=12)
+        ax.legend(fontsize=12)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.savefig('./output/XY_Trajectory_NLDrag.png', dpi=600)
 
     else:
         raise Exception('ERROR! Invalid plotting option.')
@@ -226,3 +238,21 @@ def train_rbf():
     interp_a = RBFInterpolant(trainer_vals, a_reshape)
     interp_b = RBFInterpolant(trainer_vals, b_reshape)
     return interp_a, interp_b
+
+def plot_heatmap(grid, x_vals, y_vals, title,
+                 xlabel='Control horizon v',
+                 ylabel='Prediction horizon f',
+                 cmap='viridis'):
+
+    plt.figure(figsize=(8, 6))
+    im = plt.imshow(grid,
+        origin='lower',
+        aspect='auto',
+        extent=[x_vals.min(), x_vals.max(), y_vals.min(), y_vals.max()],
+        cmap=cmap)
+
+    plt.colorbar(im)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.tight_layout()
