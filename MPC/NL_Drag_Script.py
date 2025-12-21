@@ -54,12 +54,12 @@ n_tsteps = int(t_end / dt)
 time_vec = np.linspace(0, t_end, n_tsteps)
 
 # MPC Sweep parameters:
-f_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-v_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+f_list = [10, 20]
+v_list = [10, 20]
 
 # Problem parameters:
-c = 0.4
-x0 = np.array([0, 0, 4, 0])  # Start at origin with zero velocity
+c = 2.0
+x0 = np.array([0, 0, 4, 0])
 u_max = np.array([20, 20])
 u_min = np.array([-20, -20])
 cts_lin = True
@@ -78,14 +78,16 @@ P[1, 1] = 1000  # py
 P[2, 2] = 100  # vx
 P[3, 3] = 1000  # vy
 
-# Desired trajectory - Step input to (20, 20) with zero velocity:
+# Desired trajectory - Sinusoidal:
+amplitude = 30.0
+omega = 2 * np.pi / 40.0
 traj = np.zeros((n_tsteps, 4))
 for i in range(n_tsteps):
     t = dt * i
     traj[i, 0] = 4 * t
-    traj[i, 1] = 30
+    traj[i, 1] = amplitude * np.sin(omega * t)
     traj[i, 2] = 4
-    traj[i, 3] = 0
+    traj[i, 3] = amplitude * omega * np.cos(omega * t)
 
 # Dimensions:
 r = 4
@@ -138,6 +140,9 @@ with tqdm(total=total_runs, desc="Sweep Progress") as pbar:
             x_k = x0.copy()
             vx, vy = x_k[2], x_k[3]
 
+            # Initialize linearization:
+            A_cts, B_cts, C_cts = linearization(vx, vy, c)
+
             # Start timer:
             start_time = time.perf_counter()
 
@@ -163,10 +168,9 @@ with tqdm(total=total_runs, desc="Sweep Progress") as pbar:
             # Calculate runtime:
             runtime = time.perf_counter() - start_time
 
-            # Compute errors and control cost (use last 5 seconds):
-            window = int(5 / dt)
-            x_tail = x_hist[-window:, :2]
-            x_ref_tail = traj[-window:, :2]
+            # Compute errors and control cost (use entire trajectory):
+            x_tail = x_hist[:, :2]
+            x_ref_tail = traj[:n_tsteps - f, :2]
             traj_error = np.sum((x_tail - x_ref_tail) ** 2)
             ctrl_cost = np.sum(u_hist ** 2)
 

@@ -41,14 +41,15 @@ for k in range(len(files)):
 
 # Plot heatmaps:
 plot_heatmap(runtime_grid, v_unique, f_unique,"Computational Time [s]", cmap="plasma")
-plot_heatmap(traj_error_grid, v_unique, f_unique, "Trajectory Error (last 5s)", cmap="plasma")
+plot_heatmap(traj_error_grid, v_unique, f_unique, "Trajectory Error", cmap="plasma")
 plot_heatmap(ctrl_cost_grid, v_unique, f_unique,   "Control Effort", cmap="plasma")
 
 # --- CONTROLS AND TRAJECTORY ---
 # Select trajectories:
 selected_runs = [
-    (10, 10),
-    (20, 20),
+    (50, 50),
+    (80, 50),
+    (100, 50),
 ]
 
 # Define colors for trajectories:
@@ -78,14 +79,16 @@ axes_states = axes_states.flatten()
 # Define labels:
 state_labels = ["$p_x$ (m)", "$p_y$ (m)", "$v_x$ (m/s)", "$v_y$ (m/s)"]
 
-# Generate reference trajectory for plotting:
+# Generate reference trajectory for plotting (sinusoidal):
+amplitude = 30.0
+omega = 2 * np.pi / 40.0
 t_ref = np.linspace(0, time, len(t))
 ref_trajectory = np.zeros((len(t), 4))
 for i in range(len(t)):
     ref_trajectory[i, 0] = 4 * t_ref[i]  # px = 4*t
-    ref_trajectory[i, 1] = 30            # py = 30
-    ref_trajectory[i, 2] = 4             # vx = 4
-    ref_trajectory[i, 3] = 0             # vy = 0
+    ref_trajectory[i, 1] = amplitude * np.sin(omega * t_ref[i])  # py = A*sin(ωt)
+    ref_trajectory[i, 2] = 4  # vx = 4
+    ref_trajectory[i, 3] = amplitude * omega * np.cos(omega * t_ref[i])  # vy = A*ω*cos(ωt)
 
 # Plot:
 for (f, v, data), color in zip(runs, colors):
@@ -141,14 +144,15 @@ fig_ctrl.tight_layout(rect=[0, 0, 1, 0.95])
 # --- 2D X-Y TRAJECTORY PLOT ---
 fig_xy, ax_xy = plt.subplots(figsize=(10, 8))
 
+# Plot reference trajectory (sinusoidal):
+x_ref = ref_trajectory[:, 0]
+y_ref = ref_trajectory[:, 1]
+ax_xy.plot(x_ref, y_ref, 'k--', linewidth=2, label='Reference', zorder=1)
+
 # Plot trajectories:
 for (f, v, data), color in zip(runs, colors):
     x = data["trajectory"]
-    ax_xy.plot(x[:, 0], x[:, 1], color=color, linewidth=2, label=f"f={f}, v={v}")
-
-# Plot reference line (constant y = 30):
-x_max = max([data["trajectory"][-1, 0] for _, _, data in runs])
-ax_xy.plot([0, x_max], [30, 30], 'k--', linewidth=1.5, label='Reference')
+    ax_xy.plot(x[:, 0], x[:, 1], color=color, linewidth=2, label=f"f={f}, v={v}", zorder=2)
 
 # Set labels and formatting:
 ax_xy.set_xlabel("$p_x$ (m)", fontsize=12)

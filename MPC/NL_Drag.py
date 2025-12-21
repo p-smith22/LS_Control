@@ -29,12 +29,12 @@ y_{k} = Cx_{k}
 
 Since we already have this discretization implementation and the following MPC architecture, the
 only addition needed is a function to linearize at each step.
-
 """
 
 # Import packages:
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from src.MPC import MPC
 from src.utils import *
 
@@ -93,13 +93,13 @@ v = 20
 dt = 0.01  # s
 t_end = 60  # s
 n_tsteps = int(t_end/dt)
-time = np.linspace(0, t_end, n_tsteps)
+time_vec = np.linspace(0, t_end, n_tsteps)
 time_ctrl = np.linspace(0, t_end, n_tsteps - f)
 
 #################### CHANGE THIS FOR NEW SYSTEM ####################
 
 # Problem parameters:
-c = 0.4  # Drag constant
+c = 2.  # Drag constant
 
 # Initial conditions:
 x0 = np.array([0, 0, 2, 0])
@@ -129,9 +129,9 @@ Q *= Q_scaler
 # Penalize error in objective:
 P = np.zeros((4, 4))
 P[0, 0] = 100   # px
-P[1, 1] = 1000   # py
+P[1, 1] = 100   # py
 P[2, 2] = 100   # vx
-P[3, 3] = 1000    # vy
+P[3, 3] = 100    # vy
 
 # --- Develop MPC problem ---
 # Fetch dimensions:
@@ -169,7 +169,7 @@ traj = np.zeros((n_tsteps, 4))
 
 # --- OBSTACLE AVOIDANCE ---
 # Parameters:
-amplitude = 30.0
+amplitude = 25.0
 omega = 2 * np.pi / 40.0  # Period of 40 seconds
 
 # Generate trajectory:
@@ -191,9 +191,16 @@ vy = x0[3]
 # Initialize matrices off of initial condition:
 A_cts, B_cts, C_cts = linearization(vx, vy, c)
 
+# Discretize initial matrices for MPC:
+A, B = discretize_system(A_cts, B_cts, dt)
+C = C_cts
+
 # Initialize states:
 x = np.zeros((n_tsteps - f, 4))
 x_k = x0.copy()
+
+# Start timer:
+start_time = time.perf_counter()
 
 # Use controller:
 for i in range(n_tsteps - f):
@@ -202,9 +209,9 @@ for i in range(n_tsteps - f):
     if cts_lin:
         A_cts, B_cts, C_cts = linearization(vx, vy, c)
 
-    # Discretize matrices for MPC:
-    A, B = discretize_system(A_cts, B_cts, dt)
-    C = C_cts
+        # Discretize matrices for MPC:
+        A, B = discretize_system(A_cts, B_cts, dt)
+        C = C_cts
 
     # Run MPC step:
     mpc.control_inputs(A, B, C)
@@ -224,6 +231,9 @@ for i in range(n_tsteps - f):
     # Fetch velocities (assumes that these are measurable):
     _, _, vx, vy = x_k
 
+# Calculate runtime:
+runtime = time.perf_counter() - start_time
+
 # --- Unpack, plot ---
 # Extract state estimates:
 y_des = []
@@ -236,6 +246,25 @@ for j in np.arange(n_tsteps - f):
 # Switch to arrays:
 y_des = np.array(y_des)
 ctrl = np.array(ctrl)
+
+# Compute errors and control cost:
+x_tail = x[:, :2]
+x_ref_tail = traj[:n_tsteps - f, :2]
+traj_error = np.sum((x_tail - x_ref_tail) ** 2)
+ctrl_cost = np.sum(ctrl ** 2)
+
+# Print results:
+print(f"\n{'='*50}")
+print(f"MPC Performance Metrics")
+print(f"{'='*50}")
+print(f"Prediction Horizon (f): {f}")
+print(f"Control Horizon (v):    {v}")
+print(f"Continuous Linearization: {cts_lin}")
+print(f"{'-'*50}")
+print(f"Runtime:           {runtime:.4f} s")
+print(f"Trajectory Error:  {traj_error:.2f}")
+print(f"Control Cost:      {ctrl_cost:.2f}")
+print(f"{'='*50}\n")
 
 # Plot graphs:
 plot_graphs(time_ctrl, x, y_des, ctrl, 'NL_Drag', np.array([u_min, u_max]))

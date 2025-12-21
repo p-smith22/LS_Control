@@ -84,18 +84,19 @@ class MPC(object):
 
             # From control horizon to prediction horizon:
             else:
+                a_power = np.eye(self.n)
                 for j in range(self.v):
                     if j == 0:
                         prev_sum = np.zeros((self.n, self.n))
                         for s in range(i - self.v + 2):
-                            a_power = np.linalg.matrix_power(self.A, j)
+                            a_power = np.linalg.matrix_power(self.A, s)
                             prev_sum = prev_sum + a_power
                         m_mat[i * self.r:(i + 1) * self.r, (self.v - 1) * self.m:self.v * self.m] = (
-                            self.C @ prev_sum @ self.B)
+                                self.C @ prev_sum @ self.B)
                     else:
                         a_power = a_power @ self.A
                         m_mat[i * self.r:(i + 1) * self.r, (self.v - 1 - j) * self.m:(self.v - j) * self.m] = (
-                            self.C @ a_power @ self.B)
+                                self.C @ a_power @ self.B)
 
         # Compute gain matrix:
         gain_mat = np.linalg.inv(m_mat.T @ self.W4 @ m_mat + self.W3) @ m_mat.T @ self.W4
