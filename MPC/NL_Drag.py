@@ -86,7 +86,7 @@ def nonlinear_step(x, u, dt, c):
     return x + dt * dx
 
 # Define MPC parameters:
-f = 50
+f = 100
 v = 20
 
 # Simulation parameters:
@@ -109,11 +109,11 @@ Q0_scaler = 1e2
 Q_scaler = 1e3
 
 # Define control bounds:
-u_max = np.array([20, 20]).T
-u_min = np.array([-20, -20]).T
+u_max = np.array([50, 50]).T
+u_min = np.array([-50, -50]).T
 
 # Define if you want to linearize every step or only at IC:
-cts_lin = True
+cts_lin = False
 
 ####################################################################
 
@@ -128,10 +128,10 @@ Q *= Q_scaler
 
 # Penalize error in objective:
 P = np.zeros((4, 4))
-P[0, 0] = 100   # px
-P[1, 1] = 100   # py
-P[2, 2] = 100   # vx
-P[3, 3] = 100    # vy
+P[0, 0] = 10000   # px
+P[1, 1] = 10000   # py
+P[2, 2] = 10000   # vx
+P[3, 3] = 10000    # vy
 
 # --- Develop MPC problem ---
 # Fetch dimensions:

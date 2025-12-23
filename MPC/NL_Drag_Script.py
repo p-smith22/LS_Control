@@ -54,14 +54,14 @@ n_tsteps = int(t_end / dt)
 time_vec = np.linspace(0, t_end, n_tsteps)
 
 # MPC Sweep parameters:
-f_list = [10, 20]
-v_list = [10, 20]
+f_list = [10, 20, 30, 40, 50, 60, 70]
+v_list = [10, 20, 30, 40, 50, 60, 70]
 
 # Problem parameters:
 c = 2.0
-x0 = np.array([0, 0, 4, 0])
-u_max = np.array([20, 20])
-u_min = np.array([-20, -20])
+x0 = np.array([0, 0, 2, 0])
+u_max = np.array([50, 50])
+u_min = np.array([-50, -50])
 cts_lin = True
 
 # Weight scalers:
@@ -73,20 +73,20 @@ Q0 = 0.00001 * np.eye(2) * Q0_scaler
 Q = 0.0001 * np.eye(2) * Q_scaler
 
 P = np.zeros((4, 4))
-P[0, 0] = 100  # px
+P[0, 0] = 1000  # px
 P[1, 1] = 1000  # py
-P[2, 2] = 100  # vx
+P[2, 2] = 1000  # vx
 P[3, 3] = 1000  # vy
 
 # Desired trajectory - Sinusoidal:
-amplitude = 30.0
+amplitude = 25.0
 omega = 2 * np.pi / 40.0
 traj = np.zeros((n_tsteps, 4))
 for i in range(n_tsteps):
     t = dt * i
-    traj[i, 0] = 4 * t
+    traj[i, 0] = x0[2] * t
     traj[i, 1] = amplitude * np.sin(omega * t)
-    traj[i, 2] = 4
+    traj[i, 2] = x0[2]
     traj[i, 3] = amplitude * omega * np.cos(omega * t)
 
 # Dimensions:

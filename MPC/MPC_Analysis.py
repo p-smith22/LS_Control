@@ -47,9 +47,9 @@ plot_heatmap(ctrl_cost_grid, v_unique, f_unique,   "Control Effort", cmap="plasm
 # --- CONTROLS AND TRAJECTORY ---
 # Select trajectories:
 selected_runs = [
-    (50, 50),
-    (80, 50),
-    (100, 50),
+    (10, 10),
+    (40, 40),
+    (70, 70),
 ]
 
 # Define colors for trajectories:
@@ -80,14 +80,14 @@ axes_states = axes_states.flatten()
 state_labels = ["$p_x$ (m)", "$p_y$ (m)", "$v_x$ (m/s)", "$v_y$ (m/s)"]
 
 # Generate reference trajectory for plotting (sinusoidal):
-amplitude = 30.0
+amplitude = 25.0
 omega = 2 * np.pi / 40.0
 t_ref = np.linspace(0, time, len(t))
 ref_trajectory = np.zeros((len(t), 4))
 for i in range(len(t)):
-    ref_trajectory[i, 0] = 4 * t_ref[i]  # px = 4*t
+    ref_trajectory[i, 0] = 2 * t_ref[i]  # px = 4*t
     ref_trajectory[i, 1] = amplitude * np.sin(omega * t_ref[i])  # py = A*sin(ωt)
-    ref_trajectory[i, 2] = 4  # vx = 4
+    ref_trajectory[i, 2] = 2  # vx = 4
     ref_trajectory[i, 3] = amplitude * omega * np.cos(omega * t_ref[i])  # vy = A*ω*cos(ωt)
 
 # Plot:
@@ -124,10 +124,10 @@ for (f, v, data), color in zip(runs, colors):
     axes_ctrl[1].plot(t_ctrl, u[:, 1], color=color, linewidth=2)
 
 # Control limits:
-axes_ctrl[0].axhline(20, color="black", linestyle="--", linewidth=1.5, label="Limit")
-axes_ctrl[0].axhline(-20, color="black", linestyle="--", linewidth=1.5)
-axes_ctrl[1].axhline(20, color="black", linestyle="--", linewidth=1.5)
-axes_ctrl[1].axhline(-20, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[0].axhline(50, color="black", linestyle="--", linewidth=1.5, label="Limit")
+axes_ctrl[0].axhline(-50, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[1].axhline(50, color="black", linestyle="--", linewidth=1.5)
+axes_ctrl[1].axhline(-50, color="black", linestyle="--", linewidth=1.5)
 
 # Set labels:
 axes_ctrl[0].set_ylabel("$u_x$ (m/s²)")
