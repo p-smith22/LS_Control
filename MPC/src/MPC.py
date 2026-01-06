@@ -9,7 +9,7 @@ import scipy.sparse as sp
 
 class MPC(object):
 
-    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des, u_min, u_max, f_type):
+    def __init__(self, a, b, c, f, v, w3, w4, x0, y_des, u_min, u_max, f_type, l_type="LTI"):
 
         # Assign global class variables:
         self.A = a
@@ -24,9 +24,10 @@ class MPC(object):
         self.u_min = u_min
         self.u_max = u_max
         self.f_type = f_type
+        self.l_type = l_type
 
         # Ensure function is one of the two options:
-        assert self.f_type in ['linear', 'nonlinear']
+        assert self.f_type in ['linear', 'nonlinear'], "Function type must be 'linear' or 'nonlinear'"
 
         # Precompute matrices if linear problem (don't need to linearize):
         if self.f_type == 'linear':
@@ -50,6 +51,19 @@ class MPC(object):
             self.M = None
             self.Gain = None
 
+        # Ensure linearization strategy is one of the two options:
+        assert self.l_type in ['LTI', 'LTV'], "Linearization type must be 'LTI' or 'LTV'"
+
+        # If LTV, we need to define sequential system matrices:
+        if self.l_type == 'LTV':
+            self.A_seq = a
+            self.B_seq = b
+            self.C_seq = c
+        else:
+            self.A_seq = [self.A] * self.f
+            self.B_seq = [self.B] * self.f
+            self.C_seq = [self.C] * self.f
+
         # Track current step:
         self.curr_step = 0
 
@@ -65,79 +79,86 @@ class MPC(object):
     # Precompute matrices to save time later:
     def precompute_matrix(self):
 
-        # Matrix O:
-        o_mat = np.zeros(shape=(self.f * self.r, self.n))
+        # O matrix:
+        o_mat = np.zeros((self.f * self.r, self.n))
         for i in range(self.f):
-            a_power = np.linalg.matrix_power(self.A, i+1)
-            o_mat[i * self.r:(i + 1) * self.r, :] = self.C @ a_power
+            A_prod = np.eye(self.n)
+            for j in range(i + 1):
+                A_prod = self.A_seq[j] @ A_prod
+            o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ A_prod
 
-        # Matrix M:
+        # M matrix:
         m_mat = np.zeros((self.f * self.r, self.v * self.m))
         for i in range(self.f):
-
-            # From current step to end of control horizon:
-            if i < self.v:
-                for j in range(i + 1):
-                    a_power = np.linalg.matrix_power(self.A, j)
-                    m_mat[i * self.r:(i + 1) * self.r, (i - j) * self.m:(i - j + 1) * self.m] = (
-                            self.C @ a_power @ self.B)
-
-            # From control horizon to prediction horizon:
-            else:
-                a_power = np.eye(self.n)
-                for j in range(self.v):
-                    if j == 0:
-                        prev_sum = np.zeros((self.n, self.n))
-                        for s in range(i - self.v + 2):
-                            a_power = np.linalg.matrix_power(self.A, s)
-                            prev_sum = prev_sum + a_power
-                        m_mat[i * self.r:(i + 1) * self.r, (self.v - 1) * self.m:self.v * self.m] = (
-                                self.C @ prev_sum @ self.B)
-                    else:
-                        a_power = a_power @ self.A
-                        m_mat[i * self.r:(i + 1) * self.r, (self.v - 1 - j) * self.m:(self.v - j) * self.m] = (
-                                self.C @ a_power @ self.B)
+            for j in range(min(i + 1, self.v)):
+                A_prod = np.eye(self.n)
+                for k in range(j + 1, i + 1):
+                    A_prod = self.A_seq[k] @ A_prod
+                m_mat[i * self.r:(i + 1) * self.r, j * self.m:(j + 1) * self.m] = \
+                    self.C_seq[i] @ A_prod @ self.B_seq[j]
 
         # Compute gain matrix:
         gain_mat = np.linalg.inv(m_mat.T @ self.W4 @ m_mat + self.W3) @ m_mat.T @ self.W4
-
-        # Return precomputed matrices:
         return o_mat, m_mat, gain_mat
 
     # Propagate dynamics for controller solver (x_{k+1} = Ax_{k} + Bu_{k}):
-    def prop_dyn(self, u, x):
+    def prop_dyn(self, u, x, step=None):
 
-        # Reshape to ensure dimensions:
         u = u.reshape(-1, 1)
         x = x.reshape(-1, 1)
 
-        # Initialize:
-        xkp1 = np.zeros((self.n, 1))
-        yk = np.zeros((self.r, 1))
+        # Pick the matrices:
+        if self.l_type == 'LTV':
+            assert step is not None, "Step index must be provided for LTV systems"
+            A = self.A_seq[step]
+            B = self.B_seq[step]
+            C = self.C_seq[step]
+        else:  # LTI
+            A = self.A
+            B = self.B
+            C = self.C
 
-        # Propagate:
-        xkp1 = self.A @ x + self.B @ u
-        yk = self.C @ x
+        # Propagate
+        xkp1 = A @ x + B @ u
+        yk = C @ x
 
-        # Return values:
         return xkp1, yk
 
     # Compute control inputs:
     def control_inputs(self, a_lin, b_lin, c_lin):
 
-        # Check if the problem is non-linear.
+        # Check if the problem is non-linear:
         if self.f_type == 'linear':
             pass
 
         # Expects the linearized equations:
         elif self.f_type == 'nonlinear' and a_lin is not None and b_lin is not None and c_lin is not None:
 
-            # Assign matrices:
-            self.A = a_lin
-            self.B = b_lin
-            self.C = c_lin
+            # Define sequential matrices:
+            if self.l_type == 'LTV':
+                # For LTV, expect lists of matrices
+                assert isinstance(a_lin, list), "For LTV, a_lin must be a list"
+                assert len(a_lin) == self.f, f"Expected {self.f} matrices, got {len(a_lin)}"
 
-            # Fetch dimensions:
+                self.A_seq = a_lin
+                self.B_seq = b_lin
+                self.C_seq = c_lin
+
+                # Use first matrix for dimension extraction
+                self.A = a_lin[0]
+                self.B = b_lin[0]
+                self.C = c_lin[0]
+            else:
+                # For LTI, single matrices
+                self.A = a_lin
+                self.B = b_lin
+                self.C = c_lin
+
+                self.A_seq = [self.A] * self.f
+                self.B_seq = [self.B] * self.f
+                self.C_seq = [self.C] * self.f
+
+            # Fetch dimensions (now A, B, C are always single 2D matrices)
             self.n = self.A.shape[0]
             self.m = self.B.shape[1]
             self.r = self.C.shape[0]
@@ -162,7 +183,7 @@ class MPC(object):
             u0 = np.array([[input_seq[:, 0]]])  # column vector
 
             # Propagate one step:
-            state_kp1, output_k = self.prop_dyn(u0, self.states[self.curr_step])
+            state_kp1, output_k = self.prop_dyn(u0, self.states[self.curr_step], self.curr_step)
 
             # Append to logs:
             self.states.append(state_kp1)
@@ -232,7 +253,7 @@ class MPC(object):
         if not self.f_type == 'nonlinear':
 
             # Propagate dynamics:
-            next_x, yk = self.prop_dyn(u0, self.states[self.curr_step])
+            next_x, yk = self.prop_dyn(u0, self.states[self.curr_step], self.curr_step)
 
             # Log data back to driver file:
             self.states.append(next_x)

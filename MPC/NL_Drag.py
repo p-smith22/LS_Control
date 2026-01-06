@@ -44,7 +44,7 @@ def linearization(vx, vy, c):
     # Define derivative terms for A:
     sqrt_term = np.sqrt(vx**2 + vy**2)
     if sqrt_term == 0.0:
-        sqrt_term = 1e-2 # Pad from divide by zero
+        sqrt_term = 1e-2
     dvx_dvx = -c * (sqrt_term + vx**2 / sqrt_term)
     dvx_dvy = -c * vx * vy / sqrt_term
     dvy_dvx = -c * vy * vx / sqrt_term
@@ -86,7 +86,7 @@ def nonlinear_step(x, u, dt, c):
     return x + dt * dx
 
 # Define MPC parameters:
-f = 100
+f = 50
 v = 20
 
 # Simulation parameters:
@@ -112,8 +112,8 @@ Q_scaler = 1e3
 u_max = np.array([50, 50]).T
 u_min = np.array([-50, -50]).T
 
-# Define if you want to linearize every step or only at IC:
-cts_lin = False
+# Define linearization type (LTI or LTV):
+lin_type = "LTV"
 
 ####################################################################
 
@@ -182,18 +182,7 @@ for i in range(n_tsteps):
 
 # --- Use MPC controller ---
 # Build MPC object:
-mpc = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear')
-
-# Initialize velocities from initial condition (need for linearization):
-vx = x0[2]
-vy = x0[3]
-
-# Initialize matrices off of initial condition:
-A_cts, B_cts, C_cts = linearization(vx, vy, c)
-
-# Discretize initial matrices for MPC:
-A, B = discretize_system(A_cts, B_cts, dt)
-C = C_cts
+mpc = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', lin_type)
 
 # Initialize states:
 x = np.zeros((n_tsteps - f, 4))
@@ -205,21 +194,60 @@ start_time = time.perf_counter()
 # Use controller:
 for i in range(n_tsteps - f):
 
-    # Continue to linearize at each timestep if desired:
-    if cts_lin:
+    # If linear time variant:
+    if lin_type == "LTV":
+
+        A_seq = []
+        B_seq = []
+        C_seq = []
+
+        # Predict trajectory forward using current state:
+        x_pred = x_k.copy()
+
+        for j in range(f):
+
+            # Linearize at predicted state:
+            vx_pred, vy_pred = x_pred[2], x_pred[3]
+            A_cts, B_cts, C_cts = linearization(vx_pred, vy_pred, c)
+
+            # Discretize:
+            A_disc, B_disc = discretize_system(A_cts, B_cts, dt)
+
+            # Store in sequences:
+            A_seq.append(A_disc)
+            B_seq.append(B_disc)
+            C_seq.append(C_cts)
+
+            # Grab last control:
+            if len(mpc.inputs) > 0 and j == 0:
+                u_nom = mpc.inputs[-1]
+            else:
+                u_nom = np.zeros(2)
+
+            # Propagate prediction:
+            x_pred = nonlinear_step(x_pred, u_nom, dt, c)
+
+        # Pass sequence:
+        mpc.control_inputs(A_seq, B_seq, C_seq)
+
+    # If linear time invariant:
+    else:
+
+        # Linearize at current state:
+        vx, vy = x_k[2], x_k[3]
         A_cts, B_cts, C_cts = linearization(vx, vy, c)
 
         # Discretize matrices for MPC:
         A, B = discretize_system(A_cts, B_cts, dt)
         C = C_cts
 
-    # Run MPC step:
-    mpc.control_inputs(A, B, C)
+        # Pass matrices:
+        mpc.control_inputs(A, B, C)
 
     # Fetch last control input:
     u_k = mpc.inputs[-1]
 
-    # Propagate dynamics:
+    # Propagate nonlinear dynamics:
     x_k = nonlinear_step(x_k, u_k, dt, c)
 
     # Feed true state back to MPC:
@@ -227,9 +255,6 @@ for i in range(n_tsteps - f):
 
     # Store states:
     x[i, :] = x_k.reshape(-1)
-
-    # Fetch velocities (assumes that these are measurable):
-    _, _, vx, vy = x_k
 
 # Calculate runtime:
 runtime = time.perf_counter() - start_time
@@ -259,7 +284,7 @@ print(f"MPC Performance Metrics")
 print(f"{'='*50}")
 print(f"Prediction Horizon (f): {f}")
 print(f"Control Horizon (v):    {v}")
-print(f"Continuous Linearization: {cts_lin}")
+print(f"Linearization: {lin_type}")
 print(f"{'-'*50}")
 print(f"Runtime:           {runtime:.4f} s")
 print(f"Trajectory Error:  {traj_error:.2f}")

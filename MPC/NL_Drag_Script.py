@@ -132,7 +132,7 @@ with tqdm(total=total_runs, desc="Sweep Progress") as pbar:
                 W4[i * r:(i + 1) * r, i * r:(i + 1) * r] = P
 
             # Build MPC object:
-            mpc = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear')
+            mpc = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', "LTI")
 
             # Initialize:
             x_hist = np.zeros((n_tsteps - f, 4))
