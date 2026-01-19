@@ -9,7 +9,7 @@ from src.nlmpc import build_nlmpc, solver
 
 # === SELECT METHODS TO RUN ===
 # Options = 'nonlinear', 'ltv', and 'lti'
-methods_to_run = ['ltv']
+methods_to_run = ['nonlinear', 'ltv', 'lti']
 
 # === FUNCTIONS ===
 def nonlinear_step(x, u, dt, c):
@@ -59,8 +59,8 @@ c = 2.0
 dt = 0.01
 t_end = 60.0
 n_tsteps = int(t_end / dt)
-f = 100
-v = 20
+f = 30
+v = 15
 x0 = np.array([0.0, 0.0, 2.0, 0.0])
 u_min = np.array([-50.0, -50.0])
 u_max = np.array([50.0, 50.0])
@@ -77,9 +77,9 @@ for i in range(n_tsteps):
     traj[i, 3] = amplitude * omega * np.cos(omega * t)
 
 # Weights:
-Q0 = 0.01 * np.eye(2)
+Q0 = 0.001 * np.eye(2)
 Q = 10 * np.eye(2)
-P_full = np.diag([1000, 1000, 100, 100])
+P_full = 100 * np.diag([1000, 1000, 1000, 1000])
 C = np.eye(4)
 r = C.shape[0]
 m = 2

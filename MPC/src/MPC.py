@@ -80,23 +80,25 @@ class MPC(object):
     # Precompute matrices to save time later:
     def precompute_matrix(self):
 
-        # O matrix: C[i] @ Phi[i,0] where Phi[i,0] = A[i] @ A[i-1] @ ... @ A[0]
+        # O matrix: C[i] @ Phi[i,0] where Phi[i,0] = A[i-1] @ A[i-2] @ ... @ A[0]
         o_mat = np.zeros((self.f * self.r, self.n))
         for i in range(self.f):
             # Compute state transition matrix from step 0 to step i+1
+            # Phi = A[0] @ A[1] @ ... @ A[i]
             Phi = np.eye(self.n)
             for step in range(i + 1):
-                Phi = self.A_seq[step] @ Phi
+                Phi = Phi @ self.A_seq[step]  # RIGHT multiply
             o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ Phi
 
-        # M matrix: C[i] @ Phi[i,j+1] @ B[j] where Phi[i,j+1] = A[i] @ ... @ A[j+1]
+        # M matrix: C[i] @ Phi[i,j+1] @ B[j] where Phi[i,j+1] = A[j+1] @ A[j+2] @ ... @ A[i]
         m_mat = np.zeros((self.f * self.r, self.v * self.m))
         for i in range(self.f):
             for j in range(min(i + 1, self.v)):
-                # Compute state transition matrix from step j+1 to step i+1
+                # Compute state transition matrix from step j to step i
+                # Phi = A[j+1] @ A[j+2] @ ... @ A[i]
                 Phi = np.eye(self.n)
                 for step in range(j + 1, i + 1):
-                    Phi = self.A_seq[step] @ Phi
+                    Phi = Phi @ self.A_seq[step]  # RIGHT multiply
                 m_mat[i * self.r:(i + 1) * self.r, j * self.m:(j + 1) * self.m] = \
                     self.C_seq[i] @ Phi @ self.B_seq[j]
 
