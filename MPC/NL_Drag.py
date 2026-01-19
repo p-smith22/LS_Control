@@ -86,7 +86,7 @@ def nonlinear_step(x, u, dt, c):
     return x + dt * dx
 
 # Define MPC parameters:
-f = 50
+f = 100
 v = 20
 
 # Simulation parameters:
@@ -105,8 +105,8 @@ c = 2.  # Drag constant
 x0 = np.array([0, 0, 2, 0])
 
 # Define weight scales:
-Q0_scaler = 1e2
-Q_scaler = 1e3
+Q0_scaler = 1e3
+Q_scaler = 1e5
 
 # Define control bounds:
 u_max = np.array([50, 50]).T
@@ -115,7 +115,7 @@ u_min = np.array([-50, -50]).T
 # Define linearization type (LTI or LTV):
 lin_type = "LTV"
 
-####################################################################
+####################################################################`
 
 # --- Define weight matrices:
 # Penalize current size of u:
@@ -128,10 +128,10 @@ Q *= Q_scaler
 
 # Penalize error in objective:
 P = np.zeros((4, 4))
-P[0, 0] = 10000   # px
-P[1, 1] = 10000   # py
-P[2, 2] = 10000   # vx
-P[3, 3] = 10000    # vy
+P[0, 0] = 1000   # px
+P[1, 1] = 1000   # py
+P[2, 2] = 100   # vx
+P[3, 3] = 100    # vy
 
 # --- Develop MPC problem ---
 # Fetch dimensions:

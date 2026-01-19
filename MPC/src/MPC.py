@@ -25,6 +25,7 @@ class MPC(object):
         self.u_max = u_max
         self.f_type = f_type
         self.l_type = l_type
+        self.u_sequence = None
 
         # Ensure function is one of the two options:
         assert self.f_type in ['linear', 'nonlinear'], "Function type must be 'linear' or 'nonlinear'"
@@ -79,25 +80,27 @@ class MPC(object):
     # Precompute matrices to save time later:
     def precompute_matrix(self):
 
-        # O matrix:
+        # O matrix: C[i] @ Phi[i,0] where Phi[i,0] = A[i] @ A[i-1] @ ... @ A[0]
         o_mat = np.zeros((self.f * self.r, self.n))
         for i in range(self.f):
-            A_prod = np.eye(self.n)
-            for j in range(i + 1):
-                A_prod = self.A_seq[j] @ A_prod
-            o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ A_prod
+            # Compute state transition matrix from step 0 to step i+1
+            Phi = np.eye(self.n)
+            for step in range(i + 1):
+                Phi = self.A_seq[step] @ Phi
+            o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ Phi
 
-        # M matrix:
+        # M matrix: C[i] @ Phi[i,j+1] @ B[j] where Phi[i,j+1] = A[i] @ ... @ A[j+1]
         m_mat = np.zeros((self.f * self.r, self.v * self.m))
         for i in range(self.f):
             for j in range(min(i + 1, self.v)):
-                A_prod = np.eye(self.n)
-                for k in range(j + 1, i + 1):
-                    A_prod = self.A_seq[k] @ A_prod
+                # Compute state transition matrix from step j+1 to step i+1
+                Phi = np.eye(self.n)
+                for step in range(j + 1, i + 1):
+                    Phi = self.A_seq[step] @ Phi
                 m_mat[i * self.r:(i + 1) * self.r, j * self.m:(j + 1) * self.m] = \
-                    self.C_seq[i] @ A_prod @ self.B_seq[j]
+                    self.C_seq[i] @ Phi @ self.B_seq[j]
 
-        # Compute gain matrix:
+        # Compute gain matrix
         gain_mat = np.linalg.inv(m_mat.T @ self.W4 @ m_mat + self.W3) @ m_mat.T @ self.W4
         return o_mat, m_mat, gain_mat
 
@@ -168,16 +171,19 @@ class MPC(object):
 
         # --- Solve via Closed-Form Solution ---
         if self.u_max is None and self.u_min is None:
-
             # Extract current desired trajectory:
-            y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]  # shape (f, r)
+            # FIX: Add +1 to get reference at k+1:k+f+1 instead of k:k+f
+            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]  # shape (f, r)
 
             # Compute the s vector:
-            s =  y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
+            s = y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
 
             # Compute the control sequence:
             input_seq = self.Gain @ s  # shape (v*m,)
             input_seq = input_seq.reshape(self.B.shape[1], -1)
+
+            # Store the full sequence:
+            self.u_sequence = input_seq
 
             # Apply only first input:
             u0 = np.array([[input_seq[:, 0]]])  # column vector
@@ -202,7 +208,8 @@ class MPC(object):
             self.u_min = -np.inf
 
         # Extract desired outputs for the next f steps
-        y_des_curr = self.y_des[self.curr_step:self.curr_step + self.f, :]
+        # FIX: Add +1 to get reference at k+1:k+f+1 instead of k:k+f
+        y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
         y_des_curr = y_des_curr.flatten().reshape(-1, 1)
 
         # Compute prediction offset:
@@ -246,12 +253,14 @@ class MPC(object):
         res = prob.solve()
 
         # Define controls:
-        u_opt = res.x.reshape(self.v, self.m).T
+        u_opt = res.x.reshape(self.v, self.m).T  # shape (m, v)
         u0 = u_opt[:, 0]
+
+        # Store the full optimal sequence
+        self.u_sequence = u_opt
 
         # Do not propagate if nonlinear, want to test ability to linearize and track:
         if not self.f_type == 'nonlinear':
-
             # Propagate dynamics:
             next_x, yk = self.prop_dyn(u0, self.states[self.curr_step], self.curr_step)
 
