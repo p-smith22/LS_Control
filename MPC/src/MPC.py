@@ -80,29 +80,25 @@ class MPC(object):
     # Precompute matrices to save time later:
     def precompute_matrix(self):
 
-        # O matrix: C[i] @ Phi[i,0] where Phi[i,0] = A[i-1] @ A[i-2] @ ... @ A[0]
+        # O matrix:
         o_mat = np.zeros((self.f * self.r, self.n))
         for i in range(self.f):
-            # Compute state transition matrix from step 0 to step i+1
-            # Phi = A[0] @ A[1] @ ... @ A[i]
             Phi = np.eye(self.n)
             for step in range(i + 1):
-                Phi = Phi @ self.A_seq[step]  # RIGHT multiply
+                Phi = Phi @ self.A_seq[step]
             o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ Phi
 
-        # M matrix: C[i] @ Phi[i,j+1] @ B[j] where Phi[i,j+1] = A[j+1] @ A[j+2] @ ... @ A[i]
+        # M matrix:
         m_mat = np.zeros((self.f * self.r, self.v * self.m))
         for i in range(self.f):
             for j in range(min(i + 1, self.v)):
-                # Compute state transition matrix from step j to step i
-                # Phi = A[j+1] @ A[j+2] @ ... @ A[i]
                 Phi = np.eye(self.n)
                 for step in range(j + 1, i + 1):
-                    Phi = Phi @ self.A_seq[step]  # RIGHT multiply
+                    Phi = Phi @ self.A_seq[step]
                 m_mat[i * self.r:(i + 1) * self.r, j * self.m:(j + 1) * self.m] = \
                     self.C_seq[i] @ Phi @ self.B_seq[j]
 
-        # Compute gain matrix
+        # Compute gain matrix:
         gain_mat = np.linalg.inv(m_mat.T @ self.W4 @ m_mat + self.W3) @ m_mat.T @ self.W4
         return o_mat, m_mat, gain_mat
 
@@ -174,8 +170,7 @@ class MPC(object):
         # --- Solve via Closed-Form Solution ---
         if self.u_max is None and self.u_min is None:
             # Extract current desired trajectory:
-            # FIX: Add +1 to get reference at k+1:k+f+1 instead of k:k+f
-            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]  # shape (f, r)
+            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
 
             # Compute the s vector:
             s = y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()  # shape (f*r,)
@@ -209,8 +204,7 @@ class MPC(object):
         if self.u_min is None:
             self.u_min = -np.inf
 
-        # Extract desired outputs for the next f steps
-        # FIX: Add +1 to get reference at k+1:k+f+1 instead of k:k+f
+        # Extract desired outputs for the next f steps:
         y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
         y_des_curr = y_des_curr.flatten().reshape(-1, 1)
 

@@ -59,8 +59,8 @@ c = 2.0
 dt = 0.01
 t_end = 60.0
 n_tsteps = int(t_end / dt)
-f = 30
-v = 15
+f = 50
+v = 20
 x0 = np.array([0.0, 0.0, 2.0, 0.0])
 u_min = np.array([-50.0, -50.0])
 u_max = np.array([50.0, 50.0])
@@ -78,8 +78,8 @@ for i in range(n_tsteps):
 
 # Weights:
 Q0 = 0.001 * np.eye(2)
-Q = 10 * np.eye(2)
-P_full = 100 * np.diag([1000, 1000, 1000, 1000])
+Q = 0.1 * np.eye(2)
+P_full = np.diag([10000, 10000, 10000, 10000])
 C = np.eye(4)
 r = C.shape[0]
 m = 2
