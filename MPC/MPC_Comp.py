@@ -341,7 +341,7 @@ if 'nonlinear' in methods_to_run:
 # === PRINT SUMMARY ===
 methods_present = [m for m in ['nonlinear', 'ltv', 'lti'] if m in results]
 print("\n" + "=" * 60)
-print("SIMULATION RESULTS (LTV Linearized Around Reference)")
+print("SIMULATION RESULTS")
 print("=" * 60)
 print(f"{'Method':<15} {'Runtime (s)':<15} {'Traj Error':<15} {'Control Cost':<15}")
 print("-" * 60)
@@ -352,7 +352,7 @@ print("=" * 60)
 # === PLOTTING ===
 time_vec = np.arange(n_sim) * dt
 fig, axes = plt.subplots(4, 2, figsize=(14, 10))
-fig.suptitle('MPC Comparison (LTV Around Reference)', fontsize=16, fontweight='bold')
+fig.suptitle('MPC Comparison', fontsize=16, fontweight='bold')
 
 # Position px:
 plot_traj(axes[0, 0], traj[:n_sim, 0],
