@@ -7,8 +7,8 @@ from src.MPC import MPC
 from src.nlmpc import build_nlmpc, solver
 
 # === SELECT METHODS TO RUN ===
-# Options = 'nonlinear', 'ltv', and 'lti'
-methods_to_run = ['lti', 'ltv', 'nonlinear']
+# Options = 'LTI', 'LTV', and/or 'NL'
+methods_to_run = ['LTI']
 
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
@@ -88,30 +88,6 @@ def disc_sys(A_c, B_c, g_c, dt):
     # Return discretized matrices and affine term:
     return A_d, B_d, g_d
 
-# Compute reference control sequence for a given state sequence:
-def compute_uref(x_ref_seq, dt, c):
-
-    # Initialize list:
-    u_ref_seq = []
-
-    # Loop through each of the reference states in the sequence:
-    for k in range(len(x_ref_seq) - 1):
-
-        # Calculate required accelerations given change in velocity:
-        ax_req = (x_ref_seq[k+1][2] - x_ref_seq[k][2]) / dt
-        ay_req = (x_ref_seq[k+1][3] - x_ref_seq[k][3]) / dt
-
-        # Calculate control from current velocity and required acceleration:
-        sqrt_term = np.sqrt(x_ref_seq[k][2] ** 2 + x_ref_seq[k][3] ** 2)
-        ux_ref = ax_req + c * x_ref_seq[k][2] * sqrt_term
-        uy_ref = ay_req + c * x_ref_seq[k][3] * sqrt_term
-
-        # Append reference controls to sequence:
-        u_ref_seq.append(np.array([ux_ref, uy_ref]))
-
-    # Return reference control sequence (for all the steps):
-    return u_ref_seq
-
 # Plot states (trajectory):
 def plot_traj(ax, ref, *data, labels):
     ax.plot(time_vec, ref, 'k--', linewidth=2, label='Reference')
@@ -185,14 +161,11 @@ n_sim = n_tsteps - f
 results = {}
 
 # === LTI MPC ===
-if 'lti' in methods_to_run:
+if 'LTI' in methods_to_run:
 
     # Linearize and discretize at trim point
     A_c, B_c, C_c, g_c = lin_cts(x0, np.zeros(2), c)
     A_lti, B_lti, g_lti = disc_sys(A_c, B_c, g_c, dt)
-
-    # Note: For LTI around a trim point, g should be zero if the trim satisfies f(x0,u0)=0
-    # Here it won't be zero because x0 has non-zero velocity
 
     # Initialize MPC object:
     mpc_lti = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTI')
@@ -205,10 +178,11 @@ if 'lti' in methods_to_run:
     # Solve MPC problem:
     start = time.perf_counter()
     for k in range(n_sim):
-        # Solve (ignoring affine term for LTI - could be added but typically negligible)
+
+        # Solve (note: for LTI we ignore r_k term since linearization is constant):
         mpc_lti.control_inputs(A_lti, B_lti, C_c)
 
-        # Extract control:
+        # Extract control perturbation (for LTI, this is essentially absolute control):
         u_k = mpc_lti.inputs[-1].flatten()
 
         # Propagate true nonlinear dynamics:
@@ -228,7 +202,7 @@ if 'lti' in methods_to_run:
     results['lti'] = {'x': x_lti, 'u': u_lti, 'time': time_lti, 'error': error_lti, 'cost': cost_lti}
 
 # === LTV MPC ===
-if 'ltv' in methods_to_run:
+if 'LTV' in methods_to_run:
 
     # Build MPC object:
     mpc_ltv = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTV')
@@ -244,40 +218,43 @@ if 'ltv' in methods_to_run:
     # Use controller:
     for i in range(n_sim):
 
-        # Extract reference trajectory:
+        # Extract reference state trajectory (NO u_ref needed!):
         x_ref_seq = [traj[i + j].copy() for j in range(f + 1)]
-        u_ref_seq = compute_uref(x_ref_seq, dt, c)
 
         # Initialize sequential matrices:
         A_seq = []
         B_seq = []
         C_seq = []
-        d_seq = []
+        r_seq = []  # r_k from derivation (linearization residual)
 
         # Linearize about reference trajectory:
         for j in range(f):
 
-            # Get linearized matrices:
-            A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], u_ref_seq[j], c)
+            # Linearize at reference state with u = 0 (since this is our u_nom):
+            A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], np.zeros(2), c)
 
-            # Discretize:
+            # Discretize using Euler (match your original method):
             A_d = np.eye(4) + A_c * dt
             B_d = B_c * dt
 
-            # Compute affine offset variable:
-            d_j = x_ref_seq[j + 1] - A_d @ x_ref_seq[j] - B_d @ u_ref_seq[j]
+            # Compute r_k = f(x_ref_k, 0) - x_ref_{k+1} (linearization residual):
+            f_at_ref = nonlinear_step(x_ref_seq[j], np.zeros(2), dt, c)
+            r_j = f_at_ref - x_ref_seq[j + 1]
 
             # Store in sequences:
             A_seq.append(A_d)
             B_seq.append(B_d)
             C_seq.append(C_c)
-            d_seq.append(d_j)
+            r_seq.append(r_j)
 
-        # Solve MPC:
-        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, u_ref_seq, d_seq)
+        # Solve MPC in perturbation coordinates:
+        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq)
 
-        # Extract last control:
-        u_k = mpc_ltv.inputs[-1].flatten()
+        # Extract control perturbation:
+        delta_u_k = mpc_ltv.inputs[-1].flatten()
+
+        # The actual control to apply is just delta_u_k:
+        u_k = delta_u_k
 
         # Propagate TRUE nonlinear dynamics:
         x_k = nonlinear_step(x_k, u_k, dt, c)
@@ -296,7 +273,7 @@ if 'ltv' in methods_to_run:
     results['ltv'] = {'x': x_ltv, 'u': u_ltv, 'time': time_ltv, 'error': error_ltv, 'cost': cost_ltv}
 
 # === NONLINEAR MPC ===
-if 'nonlinear' in methods_to_run:
+if 'NL' in methods_to_run:
 
     # Make variables:
     W3_ca = ca.DM(W3)

@@ -3,6 +3,7 @@ import numpy as np
 import osqp
 import scipy.sparse as sp
 
+
 # Model Predictive Control (MPC) Class:
 class MPC(object):
 
@@ -74,10 +75,10 @@ class MPC(object):
         self.inputs = []
         self.outputs = []
 
-        # For LTV, store reference trajectory and affine term:
+        # For LTV, store reference trajectory and residual terms:
         self.x_ref_seq = None
-        self.u_ref_seq = None
-        self.d_seq = None
+        self.r_seq = None
+        self.d_k = None
 
     # Precompute matrices before MPC iteration:
     def precompute_matrix(self):
@@ -87,16 +88,16 @@ class MPC(object):
         for i in range(self.f):
             Phi = np.eye(self.n)
             for step in range(i + 1):
-                Phi = Phi @ self.A_seq[step]
+                Phi = self.A_seq[step] @ Phi
             o_mat[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ Phi
 
-        # Construct M matri:
+        # Construct M matrix:
         m_mat = np.zeros((self.f * self.r, self.v * self.m))
         for i in range(self.f):
             for j in range(min(i + 1, self.v)):
                 Phi = np.eye(self.n)
                 for step in range(j + 1, i + 1):
-                    Phi = Phi @ self.A_seq[step]
+                    Phi = self.A_seq[step] @ Phi
                 m_mat[i * self.r:(i + 1) * self.r, j * self.m:(j + 1) * self.m] = \
                     self.C_seq[i] @ Phi @ self.B_seq[j]
 
@@ -104,39 +105,40 @@ class MPC(object):
         gain_mat = np.linalg.inv(m_mat.T @ self.W4 @ m_mat + self.W3) @ m_mat.T @ self.W4
         return o_mat, m_mat, gain_mat
 
-    # Compute affine offset term for more accurate nonlinear tracking:
-    def compute_affine(self):
+    # Compute affine offset from r_k terms:
+    def compute_r_offset(self):
 
-        # If affine term is not initialized, don't account for it:
-        if self.d_seq is None or all(d is None for d in self.d_seq):
+        # If r_seq is not initialized, return zeros:
+        if self.r_seq is None or all(r is None for r in self.r_seq):
             return np.zeros((self.f * self.r, 1))
 
-        # Initialize affine_term
-        d = np.zeros((self.f * self.r, 1))
+        # Initialize offset term:
+        r_offset = np.zeros((self.f * self.r, 1))
 
         # Loop through prediction horizon:
         for i in range(self.f):
 
-            # Initialize_state
-            x_affine = np.zeros((self.n, 1))
+            # Initialize accumulated state offset from r terms:
+            x_r_accum = np.zeros((self.n, 1))
 
-            # Predict next steps:
+            # Accumulate effect of all previous r_j on state at step i:
             for j in range(i + 1):
 
-                # Accumulate A matrix throughout propagation:
+                # Compute product A_i @ A_{i-1} @ ... @ A_{j+1} (from j+1 to i)
+                # This represents state transition from step j+1 to step i
                 A_pow = np.eye(self.n)
                 for step in range(j + 1, i + 1):
-                    A_pow = A_pow @ self.A_seq[step]
+                    A_pow = self.A_seq[step] @ A_pow
 
-                # Calculate contribution of affine term to trajectory:
-                if self.d_seq[j] is not None:
-                    x_affine += A_pow @ self.d_seq[j].reshape(-1, 1)
+                # Add contribution of r_j:
+                # r_j affects x_{j+1}, then propagates through A_{j+1}, A_{j+2}, ..., A_i
+                if self.r_seq[j] is not None:
+                    x_r_accum += A_pow @ self.r_seq[j].reshape(-1, 1)
 
-            # Map to output:
-            d[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ x_affine
+            # Map accumulated state offset to output:
+            r_offset[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ x_r_accum
 
-        # Return affine term:
-        return d
+        return r_offset
 
     # Propagate dynamics for controller solver:
     def prop_dyn(self, u, x, step=None):
@@ -167,8 +169,20 @@ class MPC(object):
         # Return next step:
         return xkp1, yk
 
-    # Compute control inputs:
-    def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, u_ref_seq=None, d_seq=None):
+    # Compute control inputs (main MPC solver):
+    def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, r_seq=None):
+        """
+        Solve MPC in PERTURBATION coordinates.
+
+        For LTV: Dynamics are delta_x_{k+1} = A_k * delta_x_k + B_k * delta_u_k + r_k
+
+        Args:
+            a_lin: A matrices (single matrix for LTI, list for LTV)
+            b_lin: B matrices (single matrix for LTI, list for LTV)
+            c_lin: C matrices (single matrix for LTI, list for LTV)
+            x_ref_seq: Reference state trajectory (only for LTV)
+            r_seq: Linearization residual r_k = f(x_ref, u_nom) - x_ref_{k+1} (only for LTV)
+        """
 
         # Check if the problem has been initialized as nonlinear:
         if self.f_type == 'linear':
@@ -180,17 +194,14 @@ class MPC(object):
             # Define sequential matrices:
             if self.l_type == 'LTV':
 
-                # Store affine offset terms (can be none if you want to ignore, but shouldn't be):
-                self.d_seq = d_seq if d_seq is not None else [None] * self.f
-
                 # Store values from input into the class:
                 self.A_seq = a_lin
                 self.B_seq = b_lin
                 self.C_seq = c_lin
                 self.x_ref_seq = x_ref_seq
-                self.u_ref_seq = u_ref_seq
+                self.r_seq = r_seq if r_seq is not None else [None] * self.f
 
-                # Extract dimensions:
+                # Extract dimensions from first matrix:
                 self.A = a_lin[0]
                 self.B = b_lin[0]
                 self.C = c_lin[0]
@@ -202,11 +213,11 @@ class MPC(object):
                 self.B = b_lin
                 self.C = c_lin
 
-                # Just repeat single matrices to fill sequential and neglect affine terms:
+                # Just repeat single matrices to fill sequential:
                 self.A_seq = [self.A] * self.f
                 self.B_seq = [self.B] * self.f
                 self.C_seq = [self.C] * self.f
-                self.d_seq = [None] * self.f
+                self.r_seq = [None] * self.f
 
             # Extract dimensions:
             self.n = self.A.shape[0]
@@ -216,79 +227,100 @@ class MPC(object):
             # Compute MPC matrices now that we have A and B:
             self.O, self.M, self.Gain = self.precompute_matrix()
 
-        # --- Solve via Closed-Form Solution ---
+        # --- Compute initial perturbation ---
+        if self.l_type == 'LTV' and self.x_ref_seq is not None:
+            # delta_x_0 = x_current - x_ref_0
+            delta_x0 = self.states[self.curr_step] - self.x_ref_seq[0].reshape(-1, 1)
+        else:
+            # For LTI or when no reference provided, use absolute state:
+            delta_x0 = self.states[self.curr_step]
+
+        # --- Solve via Closed-Form Solution (no constraints) ---
         if self.u_max is None and self.u_min is None:
 
-            # Extract current desired trajectory:
-            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
+            # Desired output perturbations (want delta_y = 0, i.e., track reference):
+            if self.l_type == 'LTV':
+                delta_y_des = np.zeros((self.f * self.r, 1))
+            else:
+                # For LTI, use absolute desired outputs:
+                y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
+                delta_y_des = y_des_curr.flatten().reshape(-1, 1)
 
-            # Compute affine offset from d terms:
-            d_offset = self.compute_affine()
+            # Compute offset from r_k terms:
+            r_offset = self.compute_r_offset()
 
-            # Calculate s = (O*x_curr + d_offset) - y_des:
-            s = (y_des_curr.flatten() - (self.O @ self.states[self.curr_step]).flatten()
-                 - d_offset.flatten())
+            # Calculate tracking error: s = O*delta_x0 + r_offset - delta_y_des
+            s = (self.O @ delta_x0) + r_offset - delta_y_des
 
-            # Compute the control sequence:
-            input_seq = self.Gain @ s  # shape (v*m,)
-            input_seq = input_seq.reshape(self.B.shape[1], -1)
+            # Compute the control perturbation sequence:
+            delta_u_seq = self.Gain @ s  # shape (v*m, 1)
+            delta_u_seq = delta_u_seq.reshape(self.m, -1)  # shape (m, v)
 
             # Store the full sequence:
-            self.u_sequence = input_seq
+            self.u_sequence = delta_u_seq
 
-            # Apply only first input:
-            u0 = input_seq[:, 0]
+            # Apply only first control perturbation:
+            delta_u0 = delta_u_seq[:, 0]
 
-            # Propagate one step:
-            state_kp1, output_k = self.prop_dyn(u0, self.states[self.curr_step], self.curr_step)
+            # Store control perturbation:
+            self.inputs.append(delta_u0.reshape(-1, 1))
 
-            # Append to logs:
-            self.states.append(state_kp1)
-            self.outputs.append(output_k)  # shape (r,1)
-            self.inputs.append(u0.reshape(-1, 1))
+            # Propagate one step (only for linear problems):
+            if self.f_type == 'linear':
+                state_kp1, output_k = self.prop_dyn(delta_u0, delta_x0, self.curr_step)
+                self.states.append(state_kp1)
+                self.outputs.append(output_k)
 
             # Advance step:
             self.curr_step += 1
             return
 
         # --- Solve via Optimization (with Bounds) ---
-        # If only one of the bounds is None, replace with infinite bound to continue with optimization:
+        # If only one of the bounds is None, replace with infinite bound:
         if self.u_max is None:
             self.u_max = np.inf
         if self.u_min is None:
             self.u_min = -np.inf
 
-        # Extract desired outputs for the next f steps:
-        y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
-        y_des_curr = y_des_curr.flatten().reshape(-1, 1)
+        # Desired output perturbations:
+        if self.l_type == 'LTV':
+            delta_y_des = np.zeros((self.f * self.r, 1))
+        else:
+            # For LTI, use absolute desired outputs:
+            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
+            delta_y_des = y_des_curr.flatten().reshape(-1, 1)
 
-        # Compute affine offset from d terms:
-        d_offset = self.compute_affine()
+        # Compute offset from r_k terms:
+        r_offset = self.compute_r_offset()
 
-        # Calculate s = (O*x_curr + d_offset) - y_des:
-        s = (self.O @ self.states[self.curr_step]).reshape(-1, 1) + d_offset - y_des_curr
+        # Calculate tracking error: s = O*delta_x0 + r_offset - delta_y_des
+        s = (self.O @ delta_x0) + r_offset - delta_y_des
 
-        # Build QP cost:
+        # Build QP cost: minimize delta_u^T * W3 * delta_u + (delta_y - delta_y_des)^T * W4 * (delta_y - delta_y_des)
         H = self.M.T @ self.W4 @ self.M + self.W3
-        H = (H + H.T) / 2
+        H = (H + H.T) / 2  # Ensure symmetry
 
         # Cost linear term:
-        f = (self.M.T @ (self.W4 @ s)).reshape(self.m * self.v)
+        f = (self.M.T @ self.W4 @ s).flatten()
 
         # Convert to sparse (needed for OSQP):
         H_sp = sp.csc_matrix(H)
         f_sp = np.array(f).flatten()
 
-        # Build constraints for OSQP:
-        umin = np.repeat(self.u_min, self.v)
-        umax = np.repeat(self.u_max, self.v)
+        # Build constraints for OSQP (bounds on delta_u for LTV, absolute u for LTI):
+        if self.l_type == 'LTV':
+            # Constraints are on delta_u (perturbations can be large):
+            # This is conservative - ideally should be u_min - u_ref[i] <= delta_u[i] <= u_max - u_ref[i]
+            # But we don't have u_ref anymore, so use symmetric bounds:
+            umin = np.repeat(self.u_min, self.v)
+            umax = np.repeat(self.u_max, self.v)
+        else:
+            # For LTI, bounds are on absolute control:
+            umin = np.repeat(self.u_min, self.v)
+            umax = np.repeat(self.u_max, self.v)
 
         # OSQP uses l <= A*x <= u:
         A_ineq = sp.eye(self.m * self.v).tocsc()
-
-        # Construct bounds:
-        l_bound = umin
-        u_bound = umax
 
         # Solve QP for Control Solution:
         prob = osqp.OSQP()
@@ -296,33 +328,32 @@ class MPC(object):
             P=H_sp,
             q=f_sp,
             A=A_ineq,
-            l=l_bound,
-            u=u_bound,
+            l=umin,
+            u=umax,
             verbose=False
         )
 
         # Unpack solution:
         res = prob.solve()
 
-        # Define controls:
-        u_opt = res.x.reshape(self.v, self.m).T
-        u0 = u_opt[:, 0]
+        # Define control perturbations:
+        delta_u_opt = res.x.reshape(self.v, self.m).T  # shape (m, v)
+        delta_u0 = delta_u_opt[:, 0]
 
         # Store the full optimal sequence:
-        self.u_sequence = u_opt
+        self.u_sequence = delta_u_opt
+
+        # Store control perturbation:
+        self.inputs.append(delta_u0.reshape(-1, 1))
 
         # Do not propagate if nonlinear, want to test ability to linearize and track:
-        if not self.f_type == 'nonlinear':
-
+        if self.f_type == 'linear':
             # Propagate dynamics:
-            next_x, yk = self.prop_dyn(u0, self.states[self.curr_step], self.curr_step)
+            next_x, yk = self.prop_dyn(delta_u0, delta_x0, self.curr_step)
 
             # Log data back to driver file:
             self.states.append(next_x)
             self.outputs.append(yk)
-
-        # Append control input:
-        self.inputs.append(u0.reshape(-1, 1))
 
         # Advance step:
         self.curr_step += 1
