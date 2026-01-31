@@ -14,6 +14,7 @@ methods_to_run = ['LTV']
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
 def nonlinear_step(x, u, dt, c):
+
     # Helper function that contains the time derivatives:
     def f(x, u):
         px, py, vx, vy = x
@@ -64,8 +65,7 @@ def lin_cts(x, u, c):
     # Return continuous matrices and affine term:
     return A_c, B_c, C, g_c
 
-
-# Discretize system to get x_(k+1) = A_d*x + B_d*u + g_d:
+# Discretize system to get:
 def disc_sys(A_c, B_c, g_c, dt):
     # Fetch dimensions:
     n = A_c.shape[0]
@@ -172,7 +172,7 @@ W4 = np.kron(np.eye(f), P_full)
 n_sim = n_tsteps - f
 results = {}
 
-# === LTV MPC (TRULY CORRECT IMPLEMENTATION) ===
+# === LTV MPC ===
 if 'LTV' in methods_to_run:
 
     print("\n" + "=" * 60)
@@ -212,19 +212,9 @@ if 'LTV' in methods_to_run:
             A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], np.zeros(2), c)
 
             # Discretize to get the discrete Jacobians:
-            # This gives us: f_discrete(x,u) ≈ A_d @ x + B_d @ u + g_d
             A_d, B_d, g_d = disc_sys(A_c, B_c, g_c, dt)
 
-            # Compute r_k per theory: r_k = f(x_ref_k, u_nom_k) - x_ref_{k+1}
-            # CRITICAL: The "f()" here should be the TRUE discrete dynamics we use in simulation
-            # In your original code, this was nonlinear_step (RK4)
-            # But for consistency with the Jacobians, we should use the SAME discretization
-
-            # Option 1: Use RK4 (what you had - creates mismatch but works via r_k compensation)
-            # f_at_ref = nonlinear_step(x_ref_seq[j], np.zeros(2), dt, c)
-
-            # Option 2: Use CONSISTENT discrete dynamics (truly correct LTV)
-            # This uses the same discretization as the Jacobians
+            # Compute r_k:
             f_at_ref = linearized_step(x_ref_seq[j], np.zeros(2), A_d, B_d, g_d)
 
             r_j = f_at_ref - x_ref_seq[j + 1]
@@ -269,12 +259,6 @@ print(f"{'Method':<15} {'Runtime (s)':<15} {'Traj Error':<15} {'Control Cost':<1
 print("-" * 60)
 for m in methods_present:
     print(f"{m:<15} {results[m]['time']:<15.3f} {results[m]['error']:<15.2f} {results[m]['cost']:<15.2f}")
-print("=" * 60)
-print("\nNOTE: This version uses CONSISTENT discretization:")
-print("  - Jacobians A_d, B_d from disc_sys()")
-print("  - r_k computed using SAME discretization")
-print("  - This is textbook-correct LTV MPC")
-print("  - True dynamics still use RK4 (reality)")
 print("=" * 60)
 
 # === PLOTTING ===
