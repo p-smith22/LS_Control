@@ -171,19 +171,6 @@ class MPC(object):
     # Compute control inputs (main MPC solver):
     def control_inputs(self, a_lin, b_lin, c_lin, x_nom_seq, u_nom_seq, r_seq=None, x_ref_seq=None):
 
-        """
-        Solve MPC in PERTURBATION coordinates.
-
-        For LTV: Dynamics are delta_x_{k+1} = A_k * delta_x_k + B_k * delta_u_k + r_k
-
-        Args:
-            a_lin: A matrices (single matrix for LTI, list for LTV)
-            b_lin: B matrices (single matrix for LTI, list for LTV)
-            c_lin: C matrices (single matrix for LTI, list for LTV)
-            x_ref_seq: Reference state trajectory (only for LTV)
-            r_seq: Linearization residual r_k = f(x_ref, u_nom) - x_ref_{k+1} (only for LTV)
-        """
-
         # Check if the problem has been initialized as nonlinear:
         if self.f_type == 'linear':
             pass
@@ -309,12 +296,12 @@ class MPC(object):
         # Build constraints for OSQP (bounds on delta_u for LTV, absolute u for LTI):
         if self.l_type == 'LTV':
 
-            # u_nom_seq is length f, but we only optimize over first v steps
-            u_nom_stack = np.hstack([u_nom_seq[k] for k in range(self.v)])  # shape (v*m,)
+            # Pull nominal control:
+            u_nom_stack = np.hstack([u_nom_seq[k] for k in range(self.v)])
 
+            # Add constraints for QP:
             umin = np.repeat(self.u_min, self.v) - u_nom_stack
             umax = np.repeat(self.u_max, self.v) - u_nom_stack
-
 
         else:
 

@@ -163,6 +163,52 @@ W4 = np.kron(np.eye(f), P_full)
 n_sim = n_tsteps - f
 results = {}
 
+# === LTI MPC ===
+if 'LTI' in methods_to_run:
+
+    # Linearize and discretize at trim point
+    A_c, B_c, C_c, g_c = lin_cts(x0, np.zeros(2), c)
+    A_lti, B_lti, g_lti = disc_sys(A_c, B_c, g_c, dt)
+
+    # Note: For LTI around a trim point, g should be zero if the trim satisfies f(x0,u0)=0
+    # Here it won't be zero because x0 has non-zero velocity
+
+    # Initialize MPC object:
+    mpc_lti = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTI')
+
+    # Initialize variables:
+    x_lti = np.zeros((n_sim, 4))
+    u_lti = np.zeros((n_sim, 2))
+    x_current = x0.copy()
+
+    # Solve MPC problem:
+    start = time.perf_counter()
+    for k in range(n_sim):
+        # Solve (ignoring affine term for LTI - could be added but typically negligible)
+
+        # Solve (note: for LTI we ignore r_k term since linearization is constant):
+        mpc_lti.control_inputs(A_lti, B_lti, C_c)
+
+        # Extract control:
+        # Extract control perturbation (for LTI, this is essentially absolute control):
+        u_k = mpc_lti.inputs[-1].flatten()
+
+        # Propagate true nonlinear dynamics:
+        x_current = nonlinear_step(x_current, u_k, dt, c)
+
+        # Extract states:
+        mpc_lti.states.append(x_current.reshape(-1, 1))
+
+        # Assign current step:
+        x_lti[k, :] = x_current
+        u_lti[k, :] = u_k
+
+    # Calculate results:
+    time_lti = time.perf_counter() - start
+    error_lti = np.sum((x_lti[:, :2] - traj[:n_sim, :2]) ** 2)
+    cost_lti = np.sum(u_lti ** 2)
+    results['lti'] = {'x': x_lti, 'u': u_lti, 'time': time_lti, 'error': error_lti, 'cost': cost_lti}
+
 # === LTV MPC ===
 if 'LTV' in methods_to_run:
 
@@ -256,6 +302,49 @@ if 'LTV' in methods_to_run:
     error_ltv = np.sum((x_ltv[:, :2] - traj[:n_sim, :2]) ** 2)
     cost_ltv = np.sum(u_ltv ** 2)
     results['ltv'] = {'x': x_ltv, 'u': u_ltv, 'time': time_ltv, 'error': error_ltv, 'cost': cost_ltv}
+
+# === NL MPC ===
+if 'NL' in methods_to_run:
+
+    # Make variables:
+    W3_ca = ca.DM(W3)
+    W4_ca = ca.DM(W4)
+    C_ca = ca.DM(C)
+
+    # Build MPC problem:
+    solver_nl, lbx, ubx, lbg, ubg = build_nlmpc(c, dt, f, v, C_ca, nx=4, nu=2, ny=4,
+                                                umin=u_min, umax=u_max, W3=W3_ca, W4=W4_ca)
+
+    # Initialize variables:
+    x_nl = np.zeros((n_sim, 4))
+    u_nl = np.zeros((n_sim, 2))
+    x_current = x0.copy()
+    prev_du = None
+
+    # Solve the system:
+    start = time.perf_counter()
+    for k in range(n_sim):
+
+        # Set reference output:
+        yref = np.zeros((r, f))
+        for i in range(f):
+            yref[:, i] = C @ traj[k + 1 + i, :]
+
+        # Solve MPC:
+        u_opt, prev_du = solver(solver_nl, lbx, ubx, lbg, ubg, x_current, yref, 2, v, prev_du)
+
+        # Propagate dynamics:
+        x_current = nonlinear_step(x_current, u_opt, dt, c)
+
+        # Assign current values:
+        x_nl[k, :] = x_current
+        u_nl[k, :] = u_opt
+
+    # Calculate results:
+    time_nl = time.perf_counter() - start
+    error_nl = np.sum((x_nl[:, :2] - traj[:n_sim, :2]) ** 2)
+    cost_nl = np.sum(u_nl ** 2)
+    results['nonlinear'] = {'x': x_nl, 'u': u_nl, 'time': time_nl, 'error': error_nl, 'cost': cost_nl}
 
 # === PRINT SUMMARY ===
 methods_present = [m for m in ['nonlinear', 'ltv', 'lti'] if m in results]
