@@ -116,7 +116,7 @@ v = 15
 
 # Weights:
 Q0 = 0.001 * np.eye(2)
-Q = 10 *  np.eye(2)
+Q = 0.1 * np.eye(2)
 P_full = np.diag([10000, 10000, 10000, 10000])
 # -----------------------------------------
 
@@ -177,51 +177,52 @@ if 'LTV' in methods_to_run:
     # Start timer:
     start = time.perf_counter()
 
+    # Initialize nominal trajectories:
+    x_nom_seq = [x0.copy() for _ in range(f + 1)]
+    u_nom_seq = [np.zeros(m) for _ in range(f)]
+
     # Use controller:
     for i in range(n_sim):
 
-        # Extract reference state trajectory
+        # Keep reference trajectory for tracking cost:
         x_ref_seq = [traj[i + j].copy() for j in range(f + 1)]
 
-        # Initialize sequential matrices:
         A_seq = []
         B_seq = []
         C_seq = []
         r_seq = []
 
-        # Linearize about reference trajectory:
         for j in range(f):
 
-            # Define nominal control:
-            u_nom = np.zeros((m,))
+            x_nom = x_nom_seq[j]
+            u_nom = u_nom_seq[j]
 
-            # Linearize continuous dynamics at (x_ref, u_nom=0):
-            A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], u_nom, c)
-
-            # Discretize to get the discrete Jacobians:
+            # Linearize around nominal (x_nom, u_nom)
+            A_c, B_c, C_c, g_c = lin_cts(x_nom, u_nom, c)
             A_d, B_d, g_d = disc_sys(A_c, B_c, g_c, dt)
 
-            # Compute r_k:
-            f_at_ref = linearized_step(x_ref_seq[j], u_nom, A_d, B_d, g_d)
+            # One-step prediction of nominal:
+            x_nom_next = linearized_step(x_nom, u_nom, A_d, B_d, g_d)
 
-            r_j = f_at_ref - x_ref_seq[j + 1]
+            # Affine residual:
+            x_true_next = nonlinear_step(x_nom, u_nom, dt, c)
+            r_j = x_true_next - x_nom_next
 
-            # Store in sequences:
             A_seq.append(A_d)
             B_seq.append(B_d)
             C_seq.append(C_c)
             r_seq.append(r_j)
 
         # Solve MPC:
-        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq)
+        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_nom_seq, u_nom_seq, r_seq, x_ref_seq=x_ref_seq)
 
         # Extract control perturbation:
         delta_u_k = mpc_ltv.inputs[-1].flatten()
 
-        # Actual control: u = u_nom + δu = 0 + δu
-        u_k = delta_u_k
+        # Actual control:
+        u_k = u_nom_seq[0] + delta_u_k
 
-        # Propagate TRUE nonlinear dynamics (still use RK4 for reality):
+        # Propagate TRUE nonlinear dynamics:
         x_k = nonlinear_step(x_k, u_k, dt, c)
 
         # Feed true state back to MPC:
@@ -230,6 +231,25 @@ if 'LTV' in methods_to_run:
         # Store current time step:
         x_ltv[i, :] = x_k
         u_ltv[i, :] = u_k
+
+        # Build a new nominal sequence from the optimal perturbations:
+        new_u_nom_seq = []
+
+        # Add perturbations back to nominal controls:
+        for k in range(v):
+            new_u_nom_seq.append(u_nom_seq[k] + mpc_ltv.u_sequence[:, k])
+
+        # For the remaining steps, just hold the last control in the sequence:
+        while len(new_u_nom_seq) < f:
+            new_u_nom_seq.append(new_u_nom_seq[-1].copy())
+
+        # Store new solution:
+        u_nom_seq = new_u_nom_seq
+
+        # Predict future states from current state:
+        x_nom_seq[0] = x_k.copy()
+        for j in range(f):
+            x_nom_seq[j + 1] = nonlinear_step(x_nom_seq[j], new_u_nom_seq[j], dt, c)
 
     # Calculate results:
     time_ltv = time.perf_counter() - start

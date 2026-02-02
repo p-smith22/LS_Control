@@ -169,7 +169,7 @@ class MPC(object):
         return xkp1, yk
 
     # Compute control inputs (main MPC solver):
-    def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, r_seq=None):
+    def control_inputs(self, a_lin, b_lin, c_lin, x_nom_seq, u_nom_seq, r_seq=None, x_ref_seq=None):
 
         """
         Solve MPC in PERTURBATION coordinates.
@@ -230,26 +230,33 @@ class MPC(object):
         # --- Compute initial perturbation ---
         if self.l_type == 'LTV' and self.x_ref_seq is not None:
             # delta_x_0 = x_current - x_ref_0
-            delta_x0 = self.states[self.curr_step] - self.x_ref_seq[0].reshape(-1, 1)
+            x_nom_0 = x_nom_seq[0].reshape(-1, 1)
+            delta_x0 = self.states[self.curr_step] - x_nom_0
         else:
             # For LTI or when no reference provided, use absolute state:
             delta_x0 = self.states[self.curr_step]
 
+        # Build desired output perturbation: track reference, not nominal
+        y_nom = []
+        for j in range(self.f):
+            y_nom.append(self.C_seq[j] @ x_nom_seq[j].reshape(-1, 1))
+        y_nom = np.vstack(y_nom)
+
+        y_ref = []
+        for j in range(self.f):
+            y_ref.append(x_ref_seq[j + 1].reshape(-1, 1))  # reference outputs
+        y_ref = np.vstack(y_ref)
+
+        # Desired delta-y:
+        delta_y_des = y_ref - y_nom
+
         # --- Solve via Closed-Form Solution (no constraints) ---
         if self.u_max is None and self.u_min is None:
-
-            # Desired output perturbations (want delta_y = 0, i.e., track reference):
-            if self.l_type == 'LTV':
-                delta_y_des = np.zeros((self.f * self.r, 1))
-            else:
-                # For LTI, use absolute desired outputs:
-                y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
-                delta_y_des = y_des_curr.flatten().reshape(-1, 1)
 
             # Compute offset from r_k terms:
             r_offset = self.compute_r_offset()
 
-            # Calculate tracking error: s = O*delta_x0 + r_offset - delta_y_des
+            # Calculate tracking error:
             s = (self.O @ delta_x0) + r_offset - delta_y_des
 
             # Compute the control perturbation sequence:
@@ -282,14 +289,6 @@ class MPC(object):
         if self.u_min is None:
             self.u_min = -np.inf
 
-        # Desired output perturbations:
-        if self.l_type == 'LTV':
-            delta_y_des = np.zeros((self.f * self.r, 1))
-        else:
-            # For LTI, use absolute desired outputs:
-            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
-            delta_y_des = y_des_curr.flatten().reshape(-1, 1)
-
         # Compute offset from r_k terms:
         r_offset = self.compute_r_offset()
 
@@ -310,9 +309,12 @@ class MPC(object):
         # Build constraints for OSQP (bounds on delta_u for LTV, absolute u for LTI):
         if self.l_type == 'LTV':
 
-            # Constraints for delta_u:
-            umin = np.repeat(self.u_min, self.v)
-            umax = np.repeat(self.u_max, self.v)
+            # u_nom_seq is length f, but we only optimize over first v steps
+            u_nom_stack = np.hstack([u_nom_seq[k] for k in range(self.v)])  # shape (v*m,)
+
+            umin = np.repeat(self.u_min, self.v) - u_nom_stack
+            umax = np.repeat(self.u_max, self.v) - u_nom_stack
+
 
         else:
 
