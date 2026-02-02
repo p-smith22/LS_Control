@@ -125,19 +125,18 @@ class MPC(object):
             for j in range(i + 1):
 
                 # Compute product A_i @ A_{i-1} @ ... @ A_{j+1} (from j+1 to i)
-                # This represents state transition from step j+1 to step i
                 A_pow = np.eye(self.n)
                 for step in range(j + 1, i + 1):
                     A_pow = self.A_seq[step] @ A_pow
 
                 # Add contribution of r_j:
-                # r_j affects x_{j+1}, then propagates through A_{j+1}, A_{j+2}, ..., A_i
                 if self.r_seq[j] is not None:
                     x_r_accum += A_pow @ self.r_seq[j].reshape(-1, 1)
 
             # Map accumulated state offset to output:
             r_offset[i * self.r:(i + 1) * self.r, :] = self.C_seq[i] @ x_r_accum
 
+        # Return offset term:
         return r_offset
 
     # Propagate dynamics for controller solver:
@@ -171,6 +170,7 @@ class MPC(object):
 
     # Compute control inputs (main MPC solver):
     def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, r_seq=None):
+
         """
         Solve MPC in PERTURBATION coordinates.
 
@@ -293,12 +293,12 @@ class MPC(object):
         # Compute offset from r_k terms:
         r_offset = self.compute_r_offset()
 
-        # Calculate tracking error: s = O*delta_x0 + r_offset - delta_y_des
+        # Calculate tracking error:
         s = (self.O @ delta_x0) + r_offset - delta_y_des
 
-        # Build QP cost: minimize delta_u^T * W3 * delta_u + (delta_y - delta_y_des)^T * W4 * (delta_y - delta_y_des)
+        # Build QP cost:
         H = self.M.T @ self.W4 @ self.M + self.W3
-        H = (H + H.T) / 2  # Ensure symmetry
+        H = (H + H.T) / 2
 
         # Cost linear term:
         f = (self.M.T @ self.W4 @ s).flatten()
@@ -309,12 +309,13 @@ class MPC(object):
 
         # Build constraints for OSQP (bounds on delta_u for LTV, absolute u for LTI):
         if self.l_type == 'LTV':
-            # Constraints are on delta_u (perturbations can be large):
-            # This is conservative - ideally should be u_min - u_ref[i] <= delta_u[i] <= u_max - u_ref[i]
-            # But we don't have u_ref anymore, so use symmetric bounds:
+
+            # Constraints for delta_u:
             umin = np.repeat(self.u_min, self.v)
             umax = np.repeat(self.u_max, self.v)
+
         else:
+
             # For LTI, bounds are on absolute control:
             umin = np.repeat(self.u_min, self.v)
             umax = np.repeat(self.u_max, self.v)
@@ -337,7 +338,7 @@ class MPC(object):
         res = prob.solve()
 
         # Define control perturbations:
-        delta_u_opt = res.x.reshape(self.v, self.m).T  # shape (m, v)
+        delta_u_opt = res.x.reshape(self.v, self.m).T
         delta_u0 = delta_u_opt[:, 0]
 
         # Store the full optimal sequence:
@@ -348,6 +349,7 @@ class MPC(object):
 
         # Do not propagate if nonlinear, want to test ability to linearize and track:
         if self.f_type == 'linear':
+
             # Propagate dynamics:
             next_x, yk = self.prop_dyn(delta_u0, delta_x0, self.curr_step)
 

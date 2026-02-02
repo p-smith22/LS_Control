@@ -10,7 +10,6 @@ from src.nlmpc import build_nlmpc, solver
 # Options = 'LTI', 'LTV', and/or 'NL'
 methods_to_run = ['LTV']
 
-
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
 def nonlinear_step(x, u, dt, c):
@@ -88,15 +87,9 @@ def disc_sys(A_c, B_c, g_c, dt):
     # Return discretized matrices and affine term:
     return A_d, B_d, g_d
 
-
 # Linearized discrete step (for LTV - must match the discretization used in linearization):
 def linearized_step(x, u, A_d, B_d, g_d):
-    """
-    This is the discrete dynamics corresponding to our linearization.
-    For true LTV MPC, this should match nonlinear_step() in the limit.
-    """
     return A_d @ x + B_d @ u + g_d
-
 
 # Plot states (trajectory):
 def plot_traj(ax, ref, *data, labels):
@@ -106,7 +99,6 @@ def plot_traj(ax, ref, *data, labels):
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best')
 
-
 # Plot controls:
 def plot_control(ax, *data, labels, umin, umax):
     for d, l in zip(data, labels):
@@ -115,7 +107,6 @@ def plot_control(ax, *data, labels, umin, umax):
     ax.axhline(umin, color='k', linestyle=':', alpha=0.5)
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best')
-
 
 # === SETUP SIMULATION ===
 # ------ IMPORTANT TUNING PARAMETERS ------
