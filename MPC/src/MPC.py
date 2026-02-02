@@ -124,7 +124,7 @@ class MPC(object):
             # Accumulate effect of all previous r_j on state at step i:
             for j in range(i + 1):
 
-                # Compute product A_i @ A_{i-1} @ ... @ A_{j+1} (from j+1 to i)
+                # Compute product:
                 A_pow = np.eye(self.n)
                 for step in range(j + 1, i + 1):
                     A_pow = self.A_seq[step] @ A_pow

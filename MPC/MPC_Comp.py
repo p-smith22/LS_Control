@@ -116,7 +116,7 @@ v = 15
 
 # Weights:
 Q0 = 0.001 * np.eye(2)
-Q = 0.1 * np.eye(2)
+Q = 10 *  np.eye(2)
 P_full = np.diag([10000, 10000, 10000, 10000])
 # -----------------------------------------
 
@@ -166,14 +166,6 @@ results = {}
 # === LTV MPC ===
 if 'LTV' in methods_to_run:
 
-    print("\n" + "=" * 60)
-    print("TEXTBOOK-CORRECT LTV MPC")
-    print("=" * 60)
-    print("Theory: δx_{k+1} = A_k @ δx_k + B_k @ δu_k + r_k")
-    print("where r_k = f(x_ref_k, u_nom_k) - x_ref_{k+1}")
-    print("and A_k, B_k are Jacobians of discrete dynamics f()")
-    print("=" * 60 + "\n")
-
     # Build MPC object:
     mpc_ltv = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTV')
 
@@ -199,14 +191,18 @@ if 'LTV' in methods_to_run:
 
         # Linearize about reference trajectory:
         for j in range(f):
+
+            # Define nominal control:
+            u_nom = np.zeros((m,))
+
             # Linearize continuous dynamics at (x_ref, u_nom=0):
-            A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], np.zeros(2), c)
+            A_c, B_c, C_c, g_c = lin_cts(x_ref_seq[j], u_nom, c)
 
             # Discretize to get the discrete Jacobians:
             A_d, B_d, g_d = disc_sys(A_c, B_c, g_c, dt)
 
             # Compute r_k:
-            f_at_ref = linearized_step(x_ref_seq[j], np.zeros(2), A_d, B_d, g_d)
+            f_at_ref = linearized_step(x_ref_seq[j], u_nom, A_d, B_d, g_d)
 
             r_j = f_at_ref - x_ref_seq[j + 1]
 
@@ -216,7 +212,7 @@ if 'LTV' in methods_to_run:
             C_seq.append(C_c)
             r_seq.append(r_j)
 
-        # Solve MPC: δx_{k+1} = A_k @ δx_k + B_k @ δu_k + r_k
+        # Solve MPC:
         mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq)
 
         # Extract control perturbation:
