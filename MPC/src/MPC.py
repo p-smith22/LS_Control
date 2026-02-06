@@ -169,7 +169,20 @@ class MPC(object):
         return xkp1, yk
 
     # Compute control inputs (main MPC solver):
-    def control_inputs(self, a_lin, b_lin, c_lin, x_nom_seq, u_nom_seq, r_seq=None, x_ref_seq=None):
+    def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, r_seq=None, u_nom_seq=None):
+
+        """
+        Solve MPC in PERTURBATION coordinates.
+
+        For LTV: Dynamics are delta_x_{k+1} = A_k * delta_x_k + B_k * delta_u_k + r_k
+
+        Args:
+            a_lin: A matrices (single matrix for LTI, list for LTV)
+            b_lin: B matrices (single matrix for LTI, list for LTV)
+            c_lin: C matrices (single matrix for LTI, list for LTV)
+            x_ref_seq: Reference state trajectory (only for LTV)
+            r_seq: Linearization residual r_k = f(x_ref, u_nom) - x_ref_{k+1} (only for LTV)
+        """
 
         # Check if the problem has been initialized as nonlinear:
         if self.f_type == 'linear':
@@ -216,34 +229,31 @@ class MPC(object):
 
         # --- Compute initial perturbation ---
         if self.l_type == 'LTV' and self.x_ref_seq is not None:
+
             # delta_x_0 = x_current - x_ref_0
-            x_nom_0 = x_nom_seq[0].reshape(-1, 1)
-            delta_x0 = self.states[self.curr_step] - x_nom_0
+            delta_x0 = self.states[self.curr_step] - self.x_ref_seq[0].reshape(-1, 1)
+
         else:
+
             # For LTI or when no reference provided, use absolute state:
             delta_x0 = self.states[self.curr_step]
 
-        # Build desired output perturbation: track reference, not nominal
-        y_nom = []
-        for j in range(self.f):
-            y_nom.append(self.C_seq[j] @ x_nom_seq[j].reshape(-1, 1))
-        y_nom = np.vstack(y_nom)
-
-        y_ref = []
-        for j in range(self.f):
-            y_ref.append(x_ref_seq[j + 1].reshape(-1, 1))  # reference outputs
-        y_ref = np.vstack(y_ref)
-
-        # Desired delta-y:
-        delta_y_des = y_ref - y_nom
 
         # --- Solve via Closed-Form Solution (no constraints) ---
         if self.u_max is None and self.u_min is None:
 
+            # Desired output perturbations (want delta_y = 0, i.e., track reference):
+            if self.l_type == 'LTV':
+                delta_y_des = np.zeros((self.f * self.r, 1))
+            else:
+                # For LTI, use absolute desired outputs:
+                y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
+                delta_y_des = y_des_curr.flatten().reshape(-1, 1)
+
             # Compute offset from r_k terms:
             r_offset = self.compute_r_offset()
 
-            # Calculate tracking error:
+            # Calculate tracking error: s = O*delta_x0 + r_offset - delta_y_des
             s = (self.O @ delta_x0) + r_offset - delta_y_des
 
             # Compute the control perturbation sequence:
@@ -276,6 +286,14 @@ class MPC(object):
         if self.u_min is None:
             self.u_min = -np.inf
 
+        # Desired output perturbations:
+        if self.l_type == 'LTV':
+            delta_y_des = np.zeros((self.f * self.r, 1))
+        else:
+            # For LTI, use absolute desired outputs:
+            y_des_curr = self.y_des[self.curr_step + 1:self.curr_step + self.f + 1, :]
+            delta_y_des = y_des_curr.flatten().reshape(-1, 1)
+
         # Compute offset from r_k terms:
         r_offset = self.compute_r_offset()
 
@@ -293,18 +311,17 @@ class MPC(object):
         H_sp = sp.csc_matrix(H)
         f_sp = np.array(f).flatten()
 
-        # Build constraints for OSQP (bounds on delta_u for LTV, absolute u for LTI):
-        if self.l_type == 'LTV':
+        # Build constraints for OSQP:
+        if self.l_type == 'LTV' and u_nom_seq is not None:
 
-            # Pull nominal control:
+            # Stack nominal controls for the control horizon:
             u_nom_stack = np.hstack([u_nom_seq[k] for k in range(self.v)])
 
-            # Add constraints for QP:
+            # Adjust bounds:
             umin = np.repeat(self.u_min, self.v) - u_nom_stack
             umax = np.repeat(self.u_max, self.v) - u_nom_stack
 
         else:
-
             # For LTI, bounds are on absolute control:
             umin = np.repeat(self.u_min, self.v)
             umax = np.repeat(self.u_max, self.v)

@@ -8,7 +8,7 @@ from src.nlmpc import build_nlmpc, solver
 
 # === SELECT METHODS TO RUN ===
 # Options = 'LTI', 'LTV', and/or 'NL'
-methods_to_run = ['LTV']
+methods_to_run = ['LTI', 'LTV', 'NL']
 
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
@@ -30,6 +30,24 @@ def nonlinear_step(x, u, dt, c):
     # Return next time step:
     return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
+
+# Add this function to your main code:
+
+def compute_u_ref(x_current, x_next, dt, c):
+
+    # Extract states
+    px, py, vx, vy = x_current
+    px_next, py_next, vx_next, vy_next = x_next
+
+    # Compute velocity derivatives from finite differences
+    vx_dot = (vx_next - vx) / dt
+    vy_dot = (vy_next - vy) / dt
+
+    sqrt_term = np.sqrt(vx ** 2 + vy ** 2)
+    ux_ref = vx_dot + c * vx * sqrt_term
+    uy_ref = vy_dot + c * vy * sqrt_term
+
+    return np.array([ux_ref, uy_ref])
 
 # Function that linearizes to obtain (continuous) matrices:
 def lin_cts(x, u, c):
@@ -111,13 +129,17 @@ def plot_control(ax, *data, labels, umin, umax):
 # === SETUP SIMULATION ===
 # ------ IMPORTANT TUNING PARAMETERS ------
 # Horizon variables:
-f = 30
-v = 15
+f = 50
+v = 20
 
 # Weights:
-Q0 = 0.001 * np.eye(2)
-Q = 0.1 * np.eye(2)
-P_full = np.diag([10000, 10000, 10000, 10000])
+Q0 = 0.1 * np.eye(2)
+Q = np.eye(2)
+P_full = 1000 * np.diag([1000, 1000, 1000, 1000])
+
+# Options:
+lin_ctrl = True
+true_init = True
 # -----------------------------------------
 
 # Other parameters:
@@ -170,21 +192,28 @@ if 'LTI' in methods_to_run:
     A_c, B_c, C_c, g_c = lin_cts(x0, np.zeros(2), c)
     A_lti, B_lti, g_lti = disc_sys(A_c, B_c, g_c, dt)
 
-    # Note: For LTI around a trim point, g should be zero if the trim satisfies f(x0,u0)=0
-    # Here it won't be zero because x0 has non-zero velocity
-
-    # Initialize MPC object:
-    mpc_lti = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTI')
-
     # Initialize variables:
     x_lti = np.zeros((n_sim, 4))
     u_lti = np.zeros((n_sim, 2))
-    x_current = x0.copy()
+
+    # Apply initial condition:
+    if true_init:
+
+        # Set it as the true trajectory state:
+        x_current = traj[0, :]
+
+    else:
+
+        # Set it as some "random" (off trajectory) state:
+        x_current = x0.copy()
+
+    # Initialize MPC object:
+    mpc_lti = MPC(None, None, None, f, v, W3, W4, x_current,
+                  traj, u_min, u_max, 'nonlinear', 'LTI')
 
     # Solve MPC problem:
     start = time.perf_counter()
     for k in range(n_sim):
-        # Solve (ignoring affine term for LTI - could be added but typically negligible)
 
         # Solve (note: for LTI we ignore r_k term since linearization is constant):
         mpc_lti.control_inputs(A_lti, B_lti, C_c)
@@ -212,61 +241,97 @@ if 'LTI' in methods_to_run:
 # === LTV MPC ===
 if 'LTV' in methods_to_run:
 
-    # Build MPC object:
-    mpc_ltv = MPC(None, None, None, f, v, W3, W4, x0, traj, u_min, u_max, 'nonlinear', 'LTV')
-
     # Initialize states:
     x_ltv = np.zeros((n_sim, 4))
     u_ltv = np.zeros((n_sim, 2))
-    x_k = x0.copy()
+    du_ltv = np.zeros_like(u_ltv)
+    u_nom_act = np.zeros_like(u_ltv)
+
+    # Apply initial condition:
+    if true_init:
+
+        # Set it as the true trajectory state:
+        x_k = traj[0].copy()
+
+    else:
+
+        # Set it as some "random" (off trajectory) state:
+        x_k = x0.copy()
+
+    # Build MPC object:
+    mpc_ltv = MPC(None, None, None, f, v, W3, W4, x_k, traj, u_min, u_max, 'nonlinear', 'LTV')
 
     # Start timer:
     start = time.perf_counter()
 
-    # Initialize nominal trajectories:
-    x_nom_seq = [x0.copy() for _ in range(f + 1)]
-    u_nom_seq = [np.zeros(m) for _ in range(f)]
-
     # Use controller:
     for i in range(n_sim):
 
-        # Keep reference trajectory for tracking cost:
+        # Extract reference state trajectory:
         x_ref_seq = [traj[i + j].copy() for j in range(f + 1)]
+        u_nom_act[i, :] = compute_u_ref(x_ref_seq[0], x_ref_seq[1], dt, c)
 
+        # Initialize sequential matrices and nominal trajectories:
         A_seq = []
         B_seq = []
         C_seq = []
         r_seq = []
+        x_nom_seq = []
+        u_nom_seq = []
 
+        # Linearize about reference trajectory:
         for j in range(f):
 
-            x_nom = x_nom_seq[j]
-            u_nom = u_nom_seq[j]
+            # Store nominal state (where we linearize):
+            x_nom_seq.append(x_ref_seq[j])
 
-            # Linearize around nominal (x_nom, u_nom)
-            A_c, B_c, C_c, g_c = lin_cts(x_nom, u_nom, c)
+            # Decide whether to create nominal control about trajectory or zeros:
+            if lin_ctrl:
+
+                # Compute nominal control from reference trajectory
+                u_nom = compute_u_ref(x_ref_seq[j], x_ref_seq[j+1], dt, c)
+
+            else:
+
+                # Linearize around 0 nominal control:
+                u_nom = np.zeros(m,)
+
+            # Store nominal control:
+            u_nom_seq.append(u_nom)
+
+            # Linearize continuous dynamics at (x_nom[j], u_nom[j]):
+            A_c, B_c, C_c, g_c = lin_cts(x_nom_seq[j], u_nom, c)
+
+            # Discretize to get the discrete Jacobians:
             A_d, B_d, g_d = disc_sys(A_c, B_c, g_c, dt)
 
-            # One-step prediction of nominal:
-            x_nom_next = linearized_step(x_nom, u_nom, A_d, B_d, g_d)
+            # Compute r_k = f(x_nom[j], u_nom[j]) - x_ref[j+1]
+            # This captures linearization error
+            f_at_nom = linearized_step(x_nom_seq[j], u_nom, A_d, B_d, g_d)
+            r_j = f_at_nom - x_ref_seq[j + 1]
 
-            # Affine residual:
-            x_true_next = nonlinear_step(x_nom, u_nom, dt, c)
-            r_j = x_true_next - x_nom_next
-
+            # Store in sequences:
             A_seq.append(A_d)
             B_seq.append(B_d)
             C_seq.append(C_c)
             r_seq.append(r_j)
 
-        # Solve MPC:
-        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_nom_seq, u_nom_seq, r_seq, x_ref_seq=x_ref_seq)
+        # Solve MPC (now passing x_nom_seq and u_nom_seq):
+        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq=x_ref_seq, u_nom_seq=u_nom_seq)
 
         # Extract control perturbation:
         delta_u_k = mpc_ltv.inputs[-1].flatten()
 
-        # Actual control:
-        u_k = u_nom_seq[0] + delta_u_k
+        # Actual control depends on linearization choice:
+        if lin_ctrl:
+
+            # If we linearized about u_nom, add it back:
+            u_k = u_nom_seq[0] + delta_u_k
+
+        else:
+
+            # If we linearized about u = 0, delta_u IS the actual control
+            u_k = delta_u_k
 
         # Propagate TRUE nonlinear dynamics:
         x_k = nonlinear_step(x_k, u_k, dt, c)
@@ -277,25 +342,7 @@ if 'LTV' in methods_to_run:
         # Store current time step:
         x_ltv[i, :] = x_k
         u_ltv[i, :] = u_k
-
-        # Build a new nominal sequence from the optimal perturbations:
-        new_u_nom_seq = []
-
-        # Add perturbations back to nominal controls:
-        for k in range(v):
-            new_u_nom_seq.append(u_nom_seq[k] + mpc_ltv.u_sequence[:, k])
-
-        # For the remaining steps, just hold the last control in the sequence:
-        while len(new_u_nom_seq) < f:
-            new_u_nom_seq.append(new_u_nom_seq[-1].copy())
-
-        # Store new solution:
-        u_nom_seq = new_u_nom_seq
-
-        # Predict future states from current state:
-        x_nom_seq[0] = x_k.copy()
-        for j in range(f):
-            x_nom_seq[j + 1] = nonlinear_step(x_nom_seq[j], new_u_nom_seq[j], dt, c)
+        du_ltv[i, :] = delta_u_k
 
     # Calculate results:
     time_ltv = time.perf_counter() - start
@@ -318,7 +365,18 @@ if 'NL' in methods_to_run:
     # Initialize variables:
     x_nl = np.zeros((n_sim, 4))
     u_nl = np.zeros((n_sim, 2))
-    x_current = x0.copy()
+
+    # Apply initial condition:
+    if true_init:
+
+        # Set it as the true trajectory state:
+        x_current = traj[0, :]
+
+    else:
+
+        # Set it as some "random" (off trajectory) state:
+        x_current = x0.copy()
+
     prev_du = None
 
     # Solve the system:
@@ -413,6 +471,47 @@ axes[3, 1].set_ylabel('Control Cost (Cum.)')
 axes[3, 1].set_yscale('log')
 axes[3, 1].grid(True, alpha=0.3)
 axes[3, 1].legend(loc='best')
+
+# Plot the difference between reference and actual controls:
+if 'LTV' in methods_to_run and lin_ctrl:
+
+    # Initialize figure:
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex='col')
+    fig.suptitle('Control Comparison', fontsize=16, fontweight='bold')
+
+    # State 1 side-by-side:
+    axes[0, 0].plot(time_vec, u_nom_act[:, 0], label=r'$U_{ref}$', alpha=0.8, linewidth=2)
+    axes[0, 0].plot(time_vec, u_ltv[:, 0], label=r'$U_{LTV}$', alpha=0.8, linewidth=2)
+    axes[0, 0].set_ylabel(r'$ U_x (N)$')
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].axhline(u_max[1], color='k', linestyle=':', alpha=0.5)
+    axes[0, 0].axhline(u_min[1], color='k', linestyle=':', alpha=0.5)
+    axes[0, 0].legend(loc='best')
+
+    # State 2 side-by-side:
+    axes[1, 0].plot(time_vec, u_nom_act[:, 0], label=r'$U_{ref}$', alpha=0.8, linewidth=2)
+    axes[1, 0].plot(time_vec, u_ltv[:, 0], label=r'$U_{LTV}$', alpha=0.8, linewidth=2)
+    axes[1, 0].set_ylabel(r'$U_y (N)$')
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].axhline(u_max[1], color='k', linestyle=':', alpha=0.5)
+    axes[1, 0].axhline(u_min[1], color='k', linestyle=':', alpha=0.5)
+    axes[1, 0].legend(loc='best')
+    axes[1, 0].set_xlabel('Time (s)')
+
+    # State 1 delta u:
+    axes[0, 1].plot(time_vec[:], du_ltv[:, 0], label=r'$\delta U$', alpha=0.8, linewidth=2)
+    axes[0, 1].legend(loc='best')
+    axes[0, 1].set_ylabel(r'$\delta U_x (N)$')
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].legend(loc='best')
+
+    # State 2 delta u:
+    axes[1, 1].plot(time_vec[:], du_ltv[:, 1], label=r'$\delta U$', alpha=0.8, linewidth=2)
+    axes[1, 1].legend(loc='best')
+    axes[1, 1].set_ylabel(r'$\delta U_y (N)$')
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].legend(loc='best')
+    axes[1, 1].set_xlabel('Time (s)')
 
 # Plot:
 plt.tight_layout()
