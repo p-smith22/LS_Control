@@ -171,19 +171,6 @@ class MPC(object):
     # Compute control inputs (main MPC solver):
     def control_inputs(self, a_lin, b_lin, c_lin, x_ref_seq=None, r_seq=None, u_nom_seq=None):
 
-        """
-        Solve MPC in PERTURBATION coordinates.
-
-        For LTV: Dynamics are delta_x_{k+1} = A_k * delta_x_k + B_k * delta_u_k + r_k
-
-        Args:
-            a_lin: A matrices (single matrix for LTI, list for LTV)
-            b_lin: B matrices (single matrix for LTI, list for LTV)
-            c_lin: C matrices (single matrix for LTI, list for LTV)
-            x_ref_seq: Reference state trajectory (only for LTV)
-            r_seq: Linearization residual r_k = f(x_ref, u_nom) - x_ref_{k+1} (only for LTV)
-        """
-
         # Check if the problem has been initialized as nonlinear:
         if self.f_type == 'linear':
             pass

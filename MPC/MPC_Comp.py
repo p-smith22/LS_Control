@@ -9,10 +9,11 @@ from src.nlmpc import build_nlmpc, solver
 # === SELECT METHODS TO RUN ===
 # Options = 'LTI', 'LTV', and/or 'NL'
 methods_to_run = ['LTI', 'LTV', 'NL']
+# methods_to_run = ['LTV']
 
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
-def nonlinear_step(x, u, dt, c):
+def nonlinear_step(x, u, dt, c, add_noise=False, noise_std=None):
 
     # Helper function that contains the time derivatives:
     def f(x, u):
@@ -27,9 +28,17 @@ def nonlinear_step(x, u, dt, c):
     k3 = f(x + dt / 2 * k2, u)
     k4 = f(x + dt * k3, u)
 
-    # Return next time step:
-    return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+    # Deterministic next state:
+    x_next = x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
+    # Add process noise if requested:
+    if add_noise and noise_std is not None:
+        # Generate Gaussian noise for each state
+        noise = np.random.randn(4) * noise_std
+        x_next += noise
+
+    # Return next state:
+    return x_next
 
 # Add this function to your main code:
 
@@ -133,13 +142,13 @@ f = 50
 v = 20
 
 # Weights:
-Q0 = 0.1 * np.eye(2)
-Q = np.eye(2)
+Q0 =  0.1 * np.eye(2)
+Q =  np.eye(2)
 P_full = 1000 * np.diag([1000, 1000, 1000, 1000])
 
 # Options:
-lin_ctrl = True
-true_init = True
+lin_ctrl = False
+true_init = False
 # -----------------------------------------
 
 # Other parameters:
@@ -269,7 +278,17 @@ if 'LTV' in methods_to_run:
 
         # Extract reference state trajectory:
         x_ref_seq = [traj[i + j].copy() for j in range(f + 1)]
-        u_nom_act[i, :] = compute_u_ref(x_ref_seq[0], x_ref_seq[1], dt, c)
+
+        # Assign reference control:
+        if lin_ctrl:
+
+            # Pull actual reference from trajectory:
+            u_nom_act[i, :] = compute_u_ref(x_ref_seq[0], x_ref_seq[1], dt, c)
+
+        else:
+
+            # Set as nominal control:
+            u_nom_act[i, :] = np.zeros((m,))
 
         # Initialize sequential matrices and nominal trajectories:
         A_seq = []
@@ -294,7 +313,7 @@ if 'LTV' in methods_to_run:
             else:
 
                 # Linearize around 0 nominal control:
-                u_nom = np.zeros(m,)
+                u_nom = np.zeros((m,))
 
             # Store nominal control:
             u_nom_seq.append(u_nom)
@@ -317,7 +336,10 @@ if 'LTV' in methods_to_run:
             r_seq.append(r_j)
 
         # Solve MPC (now passing x_nom_seq and u_nom_seq):
-        mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq=x_ref_seq, u_nom_seq=u_nom_seq)
+        if lin_ctrl:
+            mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq, u_nom_seq)
+        else:
+            mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq)
 
         # Extract control perturbation:
         delta_u_k = mpc_ltv.inputs[-1].flatten()
@@ -473,7 +495,7 @@ axes[3, 1].grid(True, alpha=0.3)
 axes[3, 1].legend(loc='best')
 
 # Plot the difference between reference and actual controls:
-if 'LTV' in methods_to_run and lin_ctrl:
+if 'LTV' in methods_to_run:
 
     # Initialize figure:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex='col')
