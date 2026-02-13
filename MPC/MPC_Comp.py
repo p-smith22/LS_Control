@@ -8,8 +8,8 @@ from src.nlmpc import build_nlmpc, solver
 
 # === SELECT METHODS TO RUN ===
 # Options = 'LTI', 'LTV', and/or 'NL'
-methods_to_run = ['LTI', 'LTV', 'NL']
-# methods_to_run = ['LTV']
+# methods_to_run = ['LTI', 'LTV', 'NL']
+methods_to_run = ['LTV']
 
 # === FUNCTIONS ===
 # Function to take a nonlinear time step:
@@ -40,8 +40,7 @@ def nonlinear_step(x, u, dt, c, add_noise=False, noise_std=None):
     # Return next state:
     return x_next
 
-# Add this function to your main code:
-
+# Compute reference control:
 def compute_u_ref(x_current, x_next, dt, c):
 
     # Extract states
@@ -93,6 +92,7 @@ def lin_cts(x, u, c):
 
 # Discretize system to get:
 def disc_sys(A_c, B_c, g_c, dt):
+
     # Fetch dimensions:
     n = A_c.shape[0]
     m = B_c.shape[1]
@@ -135,6 +135,82 @@ def plot_control(ax, *data, labels, umin, umax):
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best')
 
+# Print timing breakdown:
+def print_timing_breakdown(mpc_obj, method_name):
+
+    summary = mpc_obj.get_timing_summary()
+    if summary is None:
+        print(f"\nNo timing data available for {method_name}")
+        return None
+    print(f"\n{'=' * 70}")
+    print(f"TIMING BREAKDOWN: {method_name.upper()}")
+    print(f"{'=' * 70}")
+    print(f"{'Component':<30} {'Mean (ms)':<12} {'Total (s)':<12} {'% of Total':<12}")
+    print(f"{'-' * 70}")
+    total_time = summary['total']['total']
+
+    # Sort by time, starting with the greatest contributors:
+    sorted_items = sorted(summary.items(),
+                          key=lambda x: x[1]['total'] if x[0] != 'total' else 0,
+                          reverse=True)
+    for key, stats in sorted_items:
+        if key == 'total':
+            continue
+        mean_ms = stats['mean'] * 1000
+        total_s = stats['total']
+        pct = (total_s / total_time * 100) if total_time > 0 else 0
+        print(f"{key:<30} {mean_ms:<12.4f} {total_s:<12.4f} {pct:<12.2f}")
+    print(f"{'-' * 70}")
+    print(f"{'TOTAL':<30} {'':<12} {total_time:<12.4f} {100.0:<12.2f}")
+    print(f"{'=' * 70}\n")
+    return summary
+
+# Plot stacked bar graphs:
+def plot_timing_stacked_bar(summaries, method_names, title="MPC Timing Breakdown"):
+
+    # Skip if the function doesn't have what it needs:
+    if not summaries or not method_names:
+        print("No timing data to plot")
+        return
+
+    # Digest summary:
+    all_keys = set()
+    for summary in summaries:
+        if summary:
+            all_keys.update([k for k in summary.keys() if k != 'total'])
+    all_keys = sorted(list(all_keys))
+    data = np.zeros((len(all_keys), len(method_names)))
+    for j, summary in enumerate(summaries):
+        if summary:
+            for i, key in enumerate(all_keys):
+                if key in summary:
+                    data[i, j] = summary[key]['total']
+
+    # Create the plot:
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    # Define colors:
+    colors = plt.cm.Set3(np.linspace(0, 1, len(all_keys)))
+
+    # Create stacked bars:
+    x = np.arange(len(method_names))
+    width = 0.6
+    bottom = np.zeros(len(method_names))
+    for i, key in enumerate(all_keys):
+        ax.bar(x, data[i, :], width, bottom=bottom,
+               label=key, color=colors[i], alpha=0.8)
+        bottom += data[i, :]
+
+    # Formatting:
+    ax.set_ylabel('Time (seconds)', fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(method_names, fontsize=11)
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    return fig, ax
+
 # === SETUP SIMULATION ===
 # ------ IMPORTANT TUNING PARAMETERS ------
 # Horizon variables:
@@ -142,9 +218,9 @@ f = 50
 v = 20
 
 # Weights:
-Q0 =  0.1 * np.eye(2)
-Q =  np.eye(2)
-P_full = 1000 * np.diag([1000, 1000, 1000, 1000])
+Q0 = np.eye(2)
+Q = np.eye(2)
+P_full = 1000000 * np.eye(4)
 
 # Options:
 lin_ctrl = False
@@ -197,9 +273,19 @@ results = {}
 # === LTI MPC ===
 if 'LTI' in methods_to_run:
 
-    # Linearize and discretize at trim point
+    # Start main timer:
+    start = time.perf_counter()
+
+    # Initialize times:
+    lti_init_time = 0
+    lti_lin_time = 0
+    lti_MPC_time = 0
+
+    # Linearize and discretize at trim point:
+    start_lin = time.perf_counter()
     A_c, B_c, C_c, g_c = lin_cts(x0, np.zeros(2), c)
     A_lti, B_lti, g_lti = disc_sys(A_c, B_c, g_c, dt)
+    lti_lin_time += time.perf_counter() - start_lin
 
     # Initialize variables:
     x_lti = np.zeros((n_sim, 4))
@@ -217,15 +303,18 @@ if 'LTI' in methods_to_run:
         x_current = x0.copy()
 
     # Initialize MPC object:
+    start_init = time.perf_counter()
     mpc_lti = MPC(None, None, None, f, v, W3, W4, x_current,
                   traj, u_min, u_max, 'nonlinear', 'LTI')
+    lti_init_time += time.perf_counter() - start_init
 
     # Solve MPC problem:
-    start = time.perf_counter()
     for k in range(n_sim):
 
         # Solve (note: for LTI we ignore r_k term since linearization is constant):
+        start_MPC = time.perf_counter()
         mpc_lti.control_inputs(A_lti, B_lti, C_c)
+        lti_MPC_time += time.perf_counter() - start_MPC
 
         # Extract control:
         # Extract control perturbation (for LTI, this is essentially absolute control):
@@ -250,6 +339,14 @@ if 'LTI' in methods_to_run:
 # === LTV MPC ===
 if 'LTV' in methods_to_run:
 
+    # Start main timer:
+    start = time.perf_counter()
+
+    # Initialize times:
+    ltv_init_time = 0
+    ltv_lin_time = 0
+    ltv_MPC_time = 0
+
     # Initialize states:
     x_ltv = np.zeros((n_sim, 4))
     u_ltv = np.zeros((n_sim, 2))
@@ -268,10 +365,9 @@ if 'LTV' in methods_to_run:
         x_k = x0.copy()
 
     # Build MPC object:
+    start_init = time.perf_counter()
     mpc_ltv = MPC(None, None, None, f, v, W3, W4, x_k, traj, u_min, u_max, 'nonlinear', 'LTV')
-
-    # Start timer:
-    start = time.perf_counter()
+    ltv_init_time += time.perf_counter() - start_init
 
     # Use controller:
     for i in range(n_sim):
@@ -299,6 +395,7 @@ if 'LTV' in methods_to_run:
         u_nom_seq = []
 
         # Linearize about reference trajectory:
+        start_lin = time.perf_counter()
         for j in range(f):
 
             # Store nominal state (where we linearize):
@@ -335,11 +432,15 @@ if 'LTV' in methods_to_run:
             C_seq.append(C_c)
             r_seq.append(r_j)
 
+        ltv_lin_time += time.perf_counter() - start_lin
+
         # Solve MPC (now passing x_nom_seq and u_nom_seq):
+        start_MPC = time.perf_counter()
         if lin_ctrl:
             mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq, u_nom_seq)
         else:
             mpc_ltv.control_inputs(A_seq, B_seq, C_seq, x_ref_seq, r_seq)
+        ltv_MPC_time += time.perf_counter() - start_MPC
 
         # Extract control perturbation:
         delta_u_k = mpc_ltv.inputs[-1].flatten()
@@ -371,6 +472,17 @@ if 'LTV' in methods_to_run:
     error_ltv = np.sum((x_ltv[:, :2] - traj[:n_sim, :2]) ** 2)
     cost_ltv = np.sum(u_ltv ** 2)
     results['ltv'] = {'x': x_ltv, 'u': u_ltv, 'time': time_ltv, 'error': error_ltv, 'cost': cost_ltv}
+
+# Compare runtimes in bar graph:
+if 'LTI' in methods_to_run and 'LTV' in methods_to_run:
+
+    # Gather data and show:
+    lti_summary = print_timing_breakdown(mpc_lti, 'LTI')
+    ltv_summary = print_timing_breakdown(mpc_ltv, 'LTV')
+    summaries = [lti_summary, ltv_summary]
+    method_labels = ['LTI', 'LTV']
+    plot_timing_stacked_bar(summaries, method_labels,
+                            title="MPC Control Loop Timing Breakdown")
 
 # === NL MPC ===
 if 'NL' in methods_to_run:
